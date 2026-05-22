@@ -329,33 +329,66 @@ function generateGridPoints(bounds, spacing, mode) {
     const points = [];
     if (spacing <= 0)
         return points;
-    if (mode === 'quad') {
-        const startX = bounds.x;
-        const startY = bounds.y;
-        const cols = Math.ceil(bounds.width / spacing) + 1;
-        const rows = Math.ceil(bounds.height / spacing) + 1;
-        for (let row = 0; row <= rows; row++) {
-            for (let col = 0; col <= cols; col++) {
-                points.push({
-                    x: startX + col * spacing,
-                    y: startY + row * spacing,
-                });
+    const cols = Math.ceil(bounds.width / spacing) + 1;
+    const rows = Math.ceil(bounds.height / spacing) + 1;
+    switch (mode) {
+        case 'quad': {
+            for (let row = 0; row <= rows; row++) {
+                for (let col = 0; col <= cols; col++) {
+                    points.push({
+                        x: bounds.x + col * spacing,
+                        y: bounds.y + row * spacing,
+                    });
+                }
             }
+            break;
         }
-    }
-    else {
-        const hSpacing = spacing;
-        const vSpacing = spacing * (Math.sqrt(3) / 2);
-        const cols = Math.ceil(bounds.width / hSpacing) + 1;
-        const rows = Math.ceil(bounds.height / vSpacing) + 1;
-        for (let row = 0; row <= rows; row++) {
-            const offsetX = row % 2 === 0 ? 0 : hSpacing / 2;
-            for (let col = 0; col <= cols; col++) {
+        case 'hex': {
+            const vSpacing = spacing * (Math.sqrt(3) / 2);
+            const hRows = Math.ceil(bounds.height / vSpacing) + 1;
+            for (let row = 0; row <= hRows; row++) {
+                const offsetX = row % 2 === 0 ? 0 : spacing / 2;
+                for (let col = 0; col <= cols; col++) {
+                    points.push({
+                        x: bounds.x + col * spacing + offsetX,
+                        y: bounds.y + row * vSpacing,
+                    });
+                }
+            }
+            break;
+        }
+        case 'brick': {
+            for (let row = 0; row <= rows; row++) {
+                const offsetX = row % 2 === 0 ? 0 : spacing / 2;
+                for (let col = 0; col <= cols; col++) {
+                    points.push({
+                        x: bounds.x + col * spacing + offsetX,
+                        y: bounds.y + row * spacing,
+                    });
+                }
+            }
+            break;
+        }
+        case 'diamond': {
+            for (let row = 0; row <= rows; row++) {
+                for (let col = 0; col <= cols; col++) {
+                    const cx = bounds.x + col * spacing;
+                    const cy = bounds.y + row * spacing;
+                    points.push({ x: cx, y: cy });
+                    points.push({ x: cx + spacing / 2, y: cy + spacing / 2 });
+                }
+            }
+            break;
+        }
+        case 'random': {
+            const targetCount = cols * rows;
+            for (let i = 0; i < targetCount; i++) {
                 points.push({
-                    x: bounds.x + col * hSpacing + offsetX,
-                    y: bounds.y + row * vSpacing,
+                    x: bounds.x + Math.random() * bounds.width,
+                    y: bounds.y + Math.random() * bounds.height,
                 });
             }
+            break;
         }
     }
     return points;
@@ -363,16 +396,22 @@ function generateGridPoints(bounds, spacing, mode) {
 function estimatePointCount(bounds, spacing, mode) {
     if (spacing <= 0)
         return 0;
-    if (mode === 'quad') {
-        const cols = Math.ceil(bounds.width / spacing) + 1;
-        const rows = Math.ceil(bounds.height / spacing) + 1;
-        return cols * rows;
+    const baseCols = Math.ceil(bounds.width / spacing) + 1;
+    const baseRows = Math.ceil(bounds.height / spacing) + 1;
+    const base = baseCols * baseRows;
+    switch (mode) {
+        case 'quad':
+        case 'brick':
+        case 'random':
+            return base;
+        case 'hex': {
+            const vSpacing = spacing * (Math.sqrt(3) / 2);
+            const hRows = Math.ceil(bounds.height / vSpacing) + 1;
+            return baseCols * hRows;
+        }
+        case 'diamond':
+            return base * 2;
     }
-    const hSpacing = spacing;
-    const vSpacing = spacing * (Math.sqrt(3) / 2);
-    const cols = Math.ceil(bounds.width / hSpacing) + 1;
-    const rows = Math.ceil(bounds.height / vSpacing) + 1;
-    return cols * rows;
 }
 // ---- Gradient Sampling ----
 function getLightness(color) {
