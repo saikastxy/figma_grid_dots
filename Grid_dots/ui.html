@@ -148,6 +148,20 @@
   button.secondary:hover {
     background: #eee;
   }
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+  }
+  .toggle-label input[type="checkbox"] {
+    flex: 0;
+    max-width: none;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -166,6 +180,14 @@
     <label><span>Max</span><input id="max-diameter" type="number" value="20" min="0.5" step="0.5"></label>
     <label><span>Min</span><input id="min-diameter" type="number" value="2" min="0.5" step="0.5"></label>
   </div>
+</div>
+
+<div class="section" id="color-section" style="display:none">
+  <div class="section-title">Color Sampling</div>
+  <label class="toggle-label">
+    <span>Sample gradient color</span>
+    <input id="sample-color" type="checkbox">
+  </label>
 </div>
 
 <div class="section">
@@ -210,6 +232,8 @@ const gridSpacing = document.getElementById('grid-spacing');
 const estimateEl = document.getElementById('estimate');
 const generateBtn = document.getElementById('generate');
 const cancelBtn = document.getElementById('cancel');
+const colorSection = document.getElementById('color-section');
+const sampleColor = document.getElementById('sample-color');
 
 // ---- Message from plugin ----
 window.addEventListener('message', (event) => {
@@ -241,9 +265,11 @@ function updateUI() {
     if (b.fillType && b.fillType.startsWith('GRADIENT')) {
       solidDiameter.style.display = 'none';
       gradientDiameter.style.display = 'block';
+      colorSection.style.display = 'block';
     } else {
       solidDiameter.style.display = 'block';
       gradientDiameter.style.display = 'none';
+      colorSection.style.display = 'none';
     }
 
     // Estimate
@@ -254,6 +280,7 @@ function updateUI() {
     generateBtn.disabled = true;
     solidDiameter.style.display = 'block';
     gradientDiameter.style.display = 'none';
+    colorSection.style.display = 'none';
     estimateEl.textContent = '';
   }
 
@@ -326,6 +353,7 @@ generateBtn.addEventListener('click', () => {
     tileMode: tileMode.value,
     dotSourceNodeId: state.dotSourceNode ? state.dotSourceNode.id : null,
     boundaryNodeId: state.boundaryNode.id,
+    sampleColor: sampleColor.checked,
   };
 
   parent.postMessage({ pluginMessage: { type: 'generate-dots', ...params } }, '*');

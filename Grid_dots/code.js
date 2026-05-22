@@ -493,19 +493,26 @@ function handleGenerate(params) {
             if (!isPointInsideShape(localPt, geometry))
                 continue;
             let diameter;
+            let color;
             if (fillResult.type === 'gradient' && fillResult.gradient) {
                 const normX = localPt.x / geometry.width;
                 const normY = localPt.y / geometry.height;
                 const sampled = sampleGradient({ x: normX, y: normY }, fillResult.gradient);
                 const lightness = getLightness(sampled);
                 diameter = params.maxDiameter - lightness * (params.maxDiameter - params.minDiameter);
+                if (params.sampleColor) {
+                    color = sampled;
+                }
             }
             else {
                 diameter = params.dotDiameter;
+                if (params.sampleColor && fillResult.type === 'solid' && fillResult.color) {
+                    color = fillResult.color;
+                }
             }
             if (diameter < 0.5)
                 diameter = 0.5;
-            gridPoints.push({ x: pt.x, y: pt.y, diameter });
+            gridPoints.push({ x: pt.x, y: pt.y, diameter, color });
         }
         if (gridPoints.length === 0) {
             figma.notify('No grid points inside the boundary shape', { error: true });
@@ -537,7 +544,12 @@ function handleGenerate(params) {
             dot.x = gp.x - dot.width / 2;
             dot.y = gp.y - dot.height / 2;
             if ('fills' in dot && !dotSource) {
-                dot.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
+                if (gp.color) {
+                    dot.fills = [{ type: 'SOLID', color: gp.color }];
+                }
+                else {
+                    dot.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
+                }
             }
             figma.currentPage.appendChild(dot);
             nodes.push(dot);
