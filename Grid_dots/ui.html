@@ -1,17 +1,344 @@
-<h2>Rectangle Creator</h2>
-<p>Count: <input id="count" type="number" value="5"></p>
-<button id="create">Create</button>
-<button id="cancel">Cancel</button>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --bg: #ffffff;
+    --surface: #f5f5f5;
+    --border: #e5e5e5;
+    --text: #333333;
+    --text-secondary: #888888;
+    --accent: #18a0fb;
+    --accent-hover: #0d8de8;
+    --danger: #f24822;
+    --radius: 6px;
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-size: 11px;
+    --label-size: 10px;
+  }
+  body {
+    margin: 0;
+    padding: 12px;
+    font-family: var(--font);
+    font-size: var(--font-size);
+    color: var(--text);
+    background: var(--bg);
+    line-height: 1.4;
+  }
+  .section {
+    margin-bottom: 12px;
+    padding: 8px 10px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .section-title {
+    font-size: var(--label-size);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .info-box {
+    font-size: var(--font-size);
+    padding: 4px 0;
+    word-break: break-all;
+  }
+  .info-box.empty {
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  .fill-badge {
+    display: inline-block;
+    font-size: 9px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    text-transform: uppercase;
+    margin-left: 4px;
+  }
+  .fill-badge.solid { background: #e3f2fd; color: #1565c0; }
+  .fill-badge.gradient { background: #fce4ec; color: #c62828; }
+  .fill-badge.none { background: #eee; color: #666; }
+  label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+    font-size: var(--font-size);
+    gap: 6px;
+  }
+  label span {
+    flex-shrink: 0;
+  }
+  input[type="number"],
+  select {
+    flex: 1;
+    max-width: 120px;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 6px;
+    font-size: var(--font-size);
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    box-sizing: border-box;
+  }
+  input[type="number"]:focus,
+  select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  input[type="number"] {
+    width: 60px;
+  }
+  .row {
+    display: flex;
+    gap: 8px;
+  }
+  .row label {
+    flex: 1;
+  }
+  .estimate {
+    text-align: center;
+    font-size: var(--label-size);
+    color: var(--text-secondary);
+    padding: 4px 0;
+  }
+  .estimate.high {
+    color: #e65100;
+    font-weight: 600;
+  }
+  .actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  button {
+    flex: 1;
+    height: 30px;
+    border: none;
+    border-radius: var(--radius);
+    font-size: var(--font-size);
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: background 0.15s;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  button.primary:hover {
+    background: var(--accent-hover);
+  }
+  button.primary:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  button.secondary:hover {
+    background: #eee;
+  }
+</style>
+</head>
+<body>
+
+<div class="section">
+  <div class="section-title">Boundary Shape</div>
+  <div id="boundary-info" class="info-box empty">Select a shape in Figma</div>
+</div>
+
+<div class="section" id="diameter-section">
+  <div class="section-title">Dot Diameter</div>
+  <div id="solid-diameter">
+    <label><span>Diameter</span><input id="dot-diameter" type="number" value="10" min="0.5" step="0.5"></label>
+  </div>
+  <div id="gradient-diameter" style="display:none">
+    <label><span>Max</span><input id="max-diameter" type="number" value="20" min="0.5" step="0.5"></label>
+    <label><span>Min</span><input id="min-diameter" type="number" value="2" min="0.5" step="0.5"></label>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Grid Settings</div>
+  <label><span>Pattern</span>
+    <select id="tile-mode">
+      <option value="quad">Quad Grid</option>
+      <option value="hex">Hex Grid</option>
+    </select>
+  </label>
+  <label><span>Spacing</span><input id="grid-spacing" type="number" value="20" min="2" step="1"></label>
+  <div id="estimate" class="estimate"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">Dot Source Shape</div>
+  <div id="source-info" class="info-box empty">Using default circle</div>
+</div>
+
+<div class="actions">
+  <button id="generate" class="primary" disabled>Generate</button>
+  <button id="cancel" class="secondary">Cancel</button>
+</div>
+
 <script>
+// ---- State ----
+let state = {
+  boundaryNode: null,
+  dotSourceNode: null,
+};
 
-document.getElementById('create').onclick = () => {
-  const textbox = document.getElementById('count');
-  const count = parseInt(textbox.value, 10);
-  parent.postMessage({ pluginMessage: { type: 'create-shapes', count } }, '*')
+// ---- DOM refs ----
+const boundaryInfo = document.getElementById('boundary-info');
+const sourceInfo = document.getElementById('source-info');
+const solidDiameter = document.getElementById('solid-diameter');
+const gradientDiameter = document.getElementById('gradient-diameter');
+const dotDiameter = document.getElementById('dot-diameter');
+const maxDiameter = document.getElementById('max-diameter');
+const minDiameter = document.getElementById('min-diameter');
+const tileMode = document.getElementById('tile-mode');
+const gridSpacing = document.getElementById('grid-spacing');
+const estimateEl = document.getElementById('estimate');
+const generateBtn = document.getElementById('generate');
+const cancelBtn = document.getElementById('cancel');
+
+// ---- Message from plugin ----
+window.addEventListener('message', (event) => {
+  const msg = event.data.pluginMessage;
+  if (!msg) return;
+
+  if (msg.type === 'selection-change') {
+    state.boundaryNode = msg.boundaryNode;
+    state.dotSourceNode = msg.dotSourceNode;
+    updateUI();
+  }
+});
+
+// ---- Update UI based on state ----
+function updateUI() {
+  // Boundary info
+  if (state.boundaryNode) {
+    const b = state.boundaryNode;
+    let badge = '';
+    if (b.fillType === 'SOLID') badge = '<span class="fill-badge solid">Solid</span>';
+    else if (b.fillType && b.fillType.startsWith('GRADIENT')) badge = '<span class="fill-badge gradient">Gradient</span>';
+    else badge = '<span class="fill-badge none">No Fill</span>';
+
+    boundaryInfo.innerHTML = `<strong>${escapeHtml(b.name)}</strong> <small>(${b.nodeType})</small>${badge}`;
+    boundaryInfo.classList.remove('empty');
+    generateBtn.disabled = false;
+
+    // Show/hide diameter controls
+    if (b.fillType && b.fillType.startsWith('GRADIENT')) {
+      solidDiameter.style.display = 'none';
+      gradientDiameter.style.display = 'block';
+    } else {
+      solidDiameter.style.display = 'block';
+      gradientDiameter.style.display = 'none';
+    }
+
+    // Estimate
+    updateEstimate(b.bounds);
+  } else {
+    boundaryInfo.textContent = 'Select a shape in Figma';
+    boundaryInfo.classList.add('empty');
+    generateBtn.disabled = true;
+    solidDiameter.style.display = 'block';
+    gradientDiameter.style.display = 'none';
+    estimateEl.textContent = '';
+  }
+
+  // Source info
+  if (state.dotSourceNode) {
+    const s = state.dotSourceNode;
+    sourceInfo.innerHTML = `<strong>${escapeHtml(s.name)}</strong> <small>(${s.nodeType})</small>`;
+    sourceInfo.classList.remove('empty');
+  } else {
+    sourceInfo.textContent = 'Using default circle (select a 2nd shape to use as dot)';
+    sourceInfo.classList.add('empty');
+  }
 }
 
-document.getElementById('cancel').onclick = () => {
-  parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*')
+function updateEstimate(bounds) {
+  if (!bounds) {
+    estimateEl.textContent = '';
+    return;
+  }
+  const spacing = parseFloat(gridSpacing.value) || 20;
+  const mode = tileMode.value;
+  let cols, rows;
+  if (mode === 'quad') {
+    cols = Math.ceil(bounds.width / spacing) + 1;
+    rows = Math.ceil(bounds.height / spacing) + 1;
+  } else {
+    cols = Math.ceil(bounds.width / spacing) + 1;
+    rows = Math.ceil(bounds.height / (spacing * Math.sqrt(3) / 2)) + 1;
+  }
+  const total = cols * rows;
+  estimateEl.textContent = '~' + total + ' dots (upper bound)';
+  estimateEl.className = 'estimate' + (total > 5000 ? ' high' : '');
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+// ---- Input change → update estimate ----
+gridSpacing.addEventListener('input', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+tileMode.addEventListener('change', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+
+// ---- Generate ----
+generateBtn.addEventListener('click', () => {
+  if (!state.boundaryNode) return;
+
+  const spacing = parseFloat(gridSpacing.value) || 20;
+  if (spacing < 1) {
+    alert('Grid spacing must be at least 1px');
+    return;
+  }
+
+  const isGradient = state.boundaryNode.fillType && state.boundaryNode.fillType.startsWith('GRADIENT');
+
+  const params = {
+    dotDiameter: parseFloat(dotDiameter.value) || 10,
+    maxDiameter: parseFloat(maxDiameter.value) || 20,
+    minDiameter: parseFloat(minDiameter.value) || 2,
+    gridSpacing: spacing,
+    tileMode: tileMode.value,
+    dotSourceNodeId: state.dotSourceNode ? state.dotSourceNode.id : null,
+    boundaryNodeId: state.boundaryNode.id,
+  };
+
+  parent.postMessage({ pluginMessage: { type: 'generate-dots', ...params } }, '*');
+});
+
+// ---- Cancel ----
+cancelBtn.addEventListener('click', () => {
+  parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+});
+
+// ---- Request initial state ----
+parent.postMessage({ pluginMessage: { type: 'request-selection' } }, '*');
 </script>
+
+</body>
+</html>
