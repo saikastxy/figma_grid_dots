@@ -463,12 +463,10 @@ function getLightness(color: RGBA): number {
 }
 
 function sampleGradient(
-  localPt: { x: number; y: number },
+  normalizedPt: { x: number; y: number },
   gradient: { gradientType: string; stops: readonly ColorStop[]; transform: Transform },
-  node: SceneNode,
 ): RGBA {
-  const invGradTransform = invertMatrix(gradient.transform);
-  const gradPt = transformPoint(invGradTransform, localPt);
+  const gradPt = transformPoint(gradient.transform, normalizedPt);
   const gx = Math.max(0, Math.min(1, gradPt.x));
   const gy = Math.max(0, Math.min(1, gradPt.y));
 
@@ -591,7 +589,6 @@ async function handleGenerate(params: GenerateParams) {
     x: number;
     y: number;
     diameter: number;
-    color?: RGBA;
   }
 
   const gridPoints: GridPoint[] = [];
@@ -601,22 +598,19 @@ async function handleGenerate(params: GenerateParams) {
     if (!isPointInsideShape(localPt, geometry)) continue;
 
     let diameter: number;
-    let color: RGBA | undefined;
 
     if (fillResult.type === 'gradient' && fillResult.gradient) {
-      const sampled = sampleGradient(localPt, fillResult.gradient, boundaryNode);
+      const normX = localPt.x / geometry.width;
+      const normY = localPt.y / geometry.height;
+      const sampled = sampleGradient({ x: normX, y: normY }, fillResult.gradient);
       const lightness = getLightness(sampled);
       diameter = params.minDiameter + lightness * (params.maxDiameter - params.minDiameter);
-      color = sampled;
     } else {
       diameter = params.dotDiameter;
-      if (fillResult.type === 'solid' && fillResult.color) {
-        color = fillResult.color;
-      }
     }
 
     if (diameter < 0.5) diameter = 0.5;
-    gridPoints.push({ x: pt.x, y: pt.y, diameter, color });
+    gridPoints.push({ x: pt.x, y: pt.y, diameter });
   }
 
   if (gridPoints.length === 0) {
@@ -656,8 +650,8 @@ async function handleGenerate(params: GenerateParams) {
     dot.x = gp.x - dot.width / 2;
     dot.y = gp.y - dot.height / 2;
 
-    if (gp.color && 'fills' in dot && !dotSource) {
-      dot.fills = [{ type: 'SOLID', color: gp.color }];
+    if ('fills' in dot && !dotSource) {
+      dot.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
     }
 
     figma.currentPage.appendChild(dot);

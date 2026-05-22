@@ -1,40 +1,58 @@
-Below are the steps to get your plugin running. You can also find instructions at:
+# Grid Dots — Figma Plugin
 
-  https://www.figma.com/plugin-docs/plugin-quickstart-guide/
+Generate scattered dot grids inside closed shapes. Dot diameters vary with the gradient lightness of the boundary shape.
 
-This plugin template uses Typescript and NPM, two standard tools in creating JavaScript applications.
+## Features
 
-First, download Node.js which comes with NPM. This will allow you to install TypeScript and other
-libraries. You can find the download link here:
+- **Boundary shapes** — Use any closed shape (Rectangle, Ellipse, Polygon, Star, Vector, Frame, Component) as the boundary for dot placement
+- **Solid fill** — All dots share a uniform diameter you specify
+- **Gradient fill** — Dot diameters interpolate between a max and min value based on the gradient's lightness at each point (lighter areas get larger dots)
+- **Two tiling modes** — Quad grid (square) or Hex grid (staggered honeycomb)
+- **Custom dot shape** — Select a second closed shape to use as the dot body instead of default circles
+- **All Figma gradient types supported** — Linear, Radial, Angular, Diamond
 
-  https://nodejs.org/en/download/
+## Installation
 
-Next, install TypeScript using the command:
+1. In Figma desktop, go to **Plugins → Development → Import plugin from manifest...**
+2. Select `manifest.json` from this project
+3. The plugin appears under **Plugins → Development → Grid Dots**
 
-  npm install -g typescript
+## Usage
 
-Finally, in the directory of your plugin, get the latest type definitions for the plugin API by running:
+1. **Select a boundary shape** — Click any closed shape in your Figma document. This defines the area where dots will be placed.
 
-  npm install --save-dev @figma/plugin-typings
+2. **Pick a fill mode:**
+   - **Solid fill shapes**: Enter a single *Diameter* value. All dots are the same size.
+   - **Gradient fill shapes**: Enter *Max* and *Min* diameters. Dots will smoothly vary in size according to the gradient's brightness at each location.
 
-If you are familiar with JavaScript, TypeScript will look very familiar. In fact, valid JavaScript code
-is already valid Typescript code.
+3. **Configure the grid:**
+   - *Pattern*: **Quad Grid** for a square lattice, **Hex Grid** for a staggered honeycomb arrangement
+   - *Spacing*: Distance between adjacent dot centers (px)
 
-TypeScript adds type annotations to variables. This allows code editors such as Visual Studio Code
-to provide information about the Figma API while you are writing code, as well as help catch bugs
-you previously didn't notice.
+4. **(Optional) Select a dot source shape** — Select a second shape in Figma (CTRL+Click). This shape is cloned and scaled at each grid point instead of using default circles.
 
-For more information, visit https://www.typescriptlang.org/
+5. **Click Generate**
 
-Using TypeScript requires a compiler to convert TypeScript (code.ts) into JavaScript (code.js)
-for the browser to run.
+All generated dots are grouped under a "Grid Dots" layer.
 
-We recommend writing TypeScript code using Visual Studio code:
+## Parameters
 
-1. Download Visual Studio Code if you haven't already: https://code.visualstudio.com/.
-2. Open this directory in Visual Studio Code.
-3. Compile TypeScript to JavaScript: Run the "Terminal > Run Build Task..." menu item,
-    then select "npm: watch". You will have to do this again every time
-    you reopen Visual Studio Code.
+| Parameter | Description |
+|-----------|-------------|
+| Diameter | Dot diameter for solid-fill shapes (px) |
+| Max Diameter | Largest dot diameter for gradient fills (px) |
+| Min Diameter | Smallest dot diameter for gradient fills (px) |
+| Pattern | Quad Grid (square) or Hex Grid (honeycomb) |
+| Spacing | Center-to-center distance between dots (px) |
 
-That's it! Visual Studio Code will regenerate the JavaScript file every time you save.
+## Development
+
+```bash
+npm install
+npm run build      # Compile TypeScript → code.js
+npm run watch      # Auto-rebuild on changes
+```
+
+## License
+
+MIT
