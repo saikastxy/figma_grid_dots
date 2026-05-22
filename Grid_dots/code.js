@@ -5,6 +5,7 @@
 // ---- Plugin Init ----
 figma.showUI(__html__, { width: 320, height: 520 });
 function sendSelectionState() {
+    var _a;
     const selection = figma.currentPage.selection;
     const boundaryNode = selection.length > 0 ? selection[0] : null;
     const dotSourceNode = selection.length > 1 ? selection[1] : null;
@@ -29,7 +30,7 @@ function sendSelectionState() {
             }
         }
     }
-    const bounds = boundaryNode?.absoluteBoundingBox ?? null;
+    const bounds = (_a = boundaryNode === null || boundaryNode === void 0 ? void 0 : boundaryNode.absoluteBoundingBox) !== null && _a !== void 0 ? _a : null;
     figma.ui.postMessage({
         type: 'selection-change',
         boundaryNode: boundaryNode
