@@ -2,6 +2,15 @@
 // ============================================================
 // Grid Dots — Figma Plugin
 // ============================================================
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
 // ---- Plugin Init ----
 figma.showUI(__html__, { width: 320, height: 520 });
 function sendSelectionState() {
@@ -62,9 +71,9 @@ function sendSelectionState() {
 sendSelectionState();
 figma.on('selectionchange', sendSelectionState);
 // ---- Message Handling ----
-figma.ui.onmessage = (msg) => {
+figma.ui.onmessage = (msg) => __awaiter(void 0, void 0, void 0, function* () {
     if (msg.type === 'generate-dots') {
-        handleGenerate(msg);
+        yield handleGenerate(msg);
     }
     else if (msg.type === 'cancel') {
         figma.closePlugin();
@@ -72,7 +81,7 @@ figma.ui.onmessage = (msg) => {
     else if (msg.type === 'request-selection') {
         sendSelectionState();
     }
-};
+});
 // ---- Geometry Extraction ----
 function extractGeometry(node) {
     const nodeType = node.type;
@@ -452,101 +461,103 @@ function transformPoint(m, pt) {
 }
 // ---- Main Generation ----
 function handleGenerate(params) {
-    const boundaryNode = figma.getNodeById(params.boundaryNodeId);
-    if (!boundaryNode || !('absoluteTransform' in boundaryNode)) {
-        figma.notify('Please select a valid boundary shape', { error: true });
-        return;
-    }
-    const geometry = extractGeometry(boundaryNode);
-    if (!geometry) {
-        figma.notify('Cannot read geometry from selected node', { error: true });
-        return;
-    }
-    const fillResult = analyzeFill(boundaryNode);
-    let dotSource = null;
-    if (params.dotSourceNodeId) {
-        dotSource = figma.getNodeById(params.dotSourceNodeId);
-        if (!dotSource || !('clone' in dotSource)) {
-            figma.notify('Invalid dot source shape', { error: true });
+    return __awaiter(this, void 0, void 0, function* () {
+        const boundaryNode = (yield figma.getNodeByIdAsync(params.boundaryNodeId));
+        if (!boundaryNode || !('absoluteTransform' in boundaryNode)) {
+            figma.notify('Please select a valid boundary shape', { error: true });
             return;
         }
-    }
-    const bounds = boundaryNode.absoluteBoundingBox;
-    if (!bounds) {
-        figma.notify('Cannot determine boundary size', { error: true });
-        return;
-    }
-    const allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
-    const invAbsTransform = invertMatrix(boundaryNode.absoluteTransform);
-    const gridPoints = [];
-    for (const pt of allPoints) {
-        const localPt = transformPoint(invAbsTransform, pt);
-        if (!isPointInsideShape(localPt, geometry))
-            continue;
-        let diameter;
-        let color;
-        if (fillResult.type === 'gradient' && fillResult.gradient) {
-            const sampled = sampleGradient(localPt, fillResult.gradient, boundaryNode);
-            const lightness = getLightness(sampled);
-            diameter = params.minDiameter + lightness * (params.maxDiameter - params.minDiameter);
-            color = sampled;
+        const geometry = extractGeometry(boundaryNode);
+        if (!geometry) {
+            figma.notify('Cannot read geometry from selected node', { error: true });
+            return;
         }
-        else {
-            diameter = params.dotDiameter;
-            if (fillResult.type === 'solid' && fillResult.color) {
-                color = fillResult.color;
+        const fillResult = analyzeFill(boundaryNode);
+        let dotSource = null;
+        if (params.dotSourceNodeId) {
+            dotSource = (yield figma.getNodeByIdAsync(params.dotSourceNodeId));
+            if (!dotSource || !('clone' in dotSource)) {
+                figma.notify('Invalid dot source shape', { error: true });
+                return;
             }
         }
-        if (diameter < 0.5)
-            diameter = 0.5;
-        gridPoints.push({ x: pt.x, y: pt.y, diameter, color });
-    }
-    if (gridPoints.length === 0) {
-        figma.notify('No grid points inside the boundary shape', { error: true });
-        return;
-    }
-    const MAX_DOTS = 10000;
-    if (gridPoints.length > MAX_DOTS) {
-        figma.notify(`Too many dots (${gridPoints.length}). Increase grid spacing or reduce boundary size.`, { error: true });
-        return;
-    }
-    const nodes = [];
-    for (const gp of gridPoints) {
-        let dot;
-        if (dotSource) {
-            dot = dotSource.clone();
-            const sourceBounds = dotSource.absoluteBoundingBox;
-            const sourceW = sourceBounds ? sourceBounds.width : dotSource.width;
-            if (sourceW > 0) {
-                const scale = gp.diameter / sourceW;
-                dot.rescale(scale);
+        const bounds = boundaryNode.absoluteBoundingBox;
+        if (!bounds) {
+            figma.notify('Cannot determine boundary size', { error: true });
+            return;
+        }
+        const allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
+        const invAbsTransform = invertMatrix(boundaryNode.absoluteTransform);
+        const gridPoints = [];
+        for (const pt of allPoints) {
+            const localPt = transformPoint(invAbsTransform, pt);
+            if (!isPointInsideShape(localPt, geometry))
+                continue;
+            let diameter;
+            let color;
+            if (fillResult.type === 'gradient' && fillResult.gradient) {
+                const sampled = sampleGradient(localPt, fillResult.gradient, boundaryNode);
+                const lightness = getLightness(sampled);
+                diameter = params.minDiameter + lightness * (params.maxDiameter - params.minDiameter);
+                color = sampled;
             }
+            else {
+                diameter = params.dotDiameter;
+                if (fillResult.type === 'solid' && fillResult.color) {
+                    color = fillResult.color;
+                }
+            }
+            if (diameter < 0.5)
+                diameter = 0.5;
+            gridPoints.push({ x: pt.x, y: pt.y, diameter, color });
+        }
+        if (gridPoints.length === 0) {
+            figma.notify('No grid points inside the boundary shape', { error: true });
+            return;
+        }
+        const MAX_DOTS = 10000;
+        if (gridPoints.length > MAX_DOTS) {
+            figma.notify(`Too many dots (${gridPoints.length}). Increase grid spacing or reduce boundary size.`, { error: true });
+            return;
+        }
+        const nodes = [];
+        for (const gp of gridPoints) {
+            let dot;
+            if (dotSource) {
+                dot = dotSource.clone();
+                const sourceBounds = dotSource.absoluteBoundingBox;
+                const sourceW = sourceBounds ? sourceBounds.width : dotSource.width;
+                if (sourceW > 0) {
+                    const scale = gp.diameter / sourceW;
+                    dot.rescale(scale);
+                }
+            }
+            else {
+                const ellipse = figma.createEllipse();
+                ellipse.resize(gp.diameter, gp.diameter);
+                ellipse.strokeWeight = 0;
+                dot = ellipse;
+            }
+            dot.x = gp.x - dot.width / 2;
+            dot.y = gp.y - dot.height / 2;
+            if (gp.color && 'fills' in dot && !dotSource) {
+                dot.fills = [{ type: 'SOLID', color: gp.color }];
+            }
+            figma.currentPage.appendChild(dot);
+            nodes.push(dot);
+        }
+        let group;
+        if (nodes.length > 1) {
+            group = figma.group(nodes, figma.currentPage);
         }
         else {
-            const ellipse = figma.createEllipse();
-            ellipse.resize(gp.diameter, gp.diameter);
-            ellipse.strokeWeight = 0;
-            dot = ellipse;
+            group = figma.group([nodes[0]], figma.currentPage);
         }
-        dot.x = gp.x - dot.width / 2;
-        dot.y = gp.y - dot.height / 2;
-        if (gp.color && 'fills' in dot && !dotSource) {
-            dot.fills = [{ type: 'SOLID', color: gp.color }];
-        }
-        figma.currentPage.appendChild(dot);
-        nodes.push(dot);
-    }
-    let group;
-    if (nodes.length > 1) {
-        group = figma.group(nodes, figma.currentPage);
-    }
-    else {
-        group = figma.group([nodes[0]], figma.currentPage);
-    }
-    group.name = 'Grid Dots';
-    group.expanded = false;
-    figma.currentPage.selection = [group];
-    figma.viewport.scrollAndZoomIntoView([group]);
-    figma.notify(`Created ${gridPoints.length} dots`);
-    figma.closePlugin();
+        group.name = 'Grid Dots';
+        group.expanded = false;
+        figma.currentPage.selection = [group];
+        figma.viewport.scrollAndZoomIntoView([group]);
+        figma.notify(`Created ${gridPoints.length} dots`);
+        figma.closePlugin();
+    });
 }

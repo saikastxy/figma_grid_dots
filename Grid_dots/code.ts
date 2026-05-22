@@ -101,9 +101,9 @@ figma.on('selectionchange', sendSelectionState);
 
 // ---- Message Handling ----
 
-figma.ui.onmessage = (msg: { type: string } & Record<string, unknown>) => {
+figma.ui.onmessage = async (msg: { type: string } & Record<string, unknown>) => {
   if (msg.type === 'generate-dots') {
-    handleGenerate(msg as unknown as GenerateParams);
+    await handleGenerate(msg as unknown as GenerateParams);
   } else if (msg.type === 'cancel') {
     figma.closePlugin();
   } else if (msg.type === 'request-selection') {
@@ -554,8 +554,8 @@ function transformPoint(m: Transform, pt: { x: number; y: number }): { x: number
 
 // ---- Main Generation ----
 
-function handleGenerate(params: GenerateParams) {
-  const boundaryNode = figma.getNodeById(params.boundaryNodeId) as SceneNode | null;
+async function handleGenerate(params: GenerateParams) {
+  const boundaryNode = (await figma.getNodeByIdAsync(params.boundaryNodeId)) as SceneNode | null;
   if (!boundaryNode || !('absoluteTransform' in boundaryNode)) {
     figma.notify('Please select a valid boundary shape', { error: true });
     return;
@@ -571,7 +571,7 @@ function handleGenerate(params: GenerateParams) {
 
   let dotSource: SceneNode | null = null;
   if (params.dotSourceNodeId) {
-    dotSource = figma.getNodeById(params.dotSourceNodeId) as SceneNode | null;
+    dotSource = (await figma.getNodeByIdAsync(params.dotSourceNodeId)) as SceneNode | null;
     if (!dotSource || !('clone' in dotSource)) {
       figma.notify('Invalid dot source shape', { error: true });
       return;
