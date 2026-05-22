@@ -498,7 +498,7 @@ function handleGenerate(params) {
                 const normY = localPt.y / geometry.height;
                 const sampled = sampleGradient({ x: normX, y: normY }, fillResult.gradient);
                 const lightness = getLightness(sampled);
-                diameter = params.minDiameter + lightness * (params.maxDiameter - params.minDiameter);
+                diameter = params.maxDiameter - lightness * (params.maxDiameter - params.minDiameter);
             }
             else {
                 diameter = params.dotDiameter;
