@@ -180,12 +180,16 @@
     <label><span>Max</span><input id="max-diameter" type="number" value="20" min="0.5" step="0.5"></label>
     <label><span>Min</span><input id="min-diameter" type="number" value="2" min="0.5" step="0.5"></label>
   </div>
+  <label class="toggle-label" id="bitmap-toggle-row" style="display:none;margin-top:4px">
+    <span>Sample from bitmap</span>
+    <input id="sample-bitmap" type="checkbox">
+  </label>
 </div>
 
 <div class="section" id="color-section" style="display:none">
   <div class="section-title">Color Sampling</div>
   <label class="toggle-label">
-    <span>Sample gradient color</span>
+    <span>Sample color</span>
     <input id="sample-color" type="checkbox">
   </label>
 </div>
@@ -237,6 +241,8 @@ const generateBtn = document.getElementById('generate');
 const cancelBtn = document.getElementById('cancel');
 const colorSection = document.getElementById('color-section');
 const sampleColor = document.getElementById('sample-color');
+const sampleBitmap = document.getElementById('sample-bitmap');
+const bitmapToggleRow = document.getElementById('bitmap-toggle-row');
 
 // ---- Message from plugin ----
 window.addEventListener('message', (event) => {
@@ -247,8 +253,64 @@ window.addEventListener('message', (event) => {
     state.boundaryNode = msg.boundaryNode;
     state.dotSourceNode = msg.dotSourceNode;
     updateUI();
+  } else if (msg.type === 'sample-bitmap') {
+    handleSampleBitmap(msg);
   }
 });
+
+async function handleSampleBitmap(msg) {
+  const { imageBase64, scale, localPoints, sampleColor: doSampleColor } = msg;
+
+  // Decode base64 to bytes
+  const binaryStr = atob(imageBase64);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) {
+    bytes[i] = binaryStr.charCodeAt(i);
+  }
+
+  // Load image from blob
+  const blob = new Blob([bytes], { type: 'image/png' });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+
+  img.onload = () => {
+    const canvas = document.getElementById('bitmap-canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+
+    const lightness = [];
+    const colors = doSampleColor ? [] : undefined;
+
+    for (const pt of localPoints) {
+      const px = Math.round(pt.x * scale);
+      const py = Math.round(pt.y * scale);
+      const cx = Math.max(0, Math.min(canvas.width - 1, px));
+      const cy = Math.max(0, Math.min(canvas.height - 1, py));
+      const pixel = ctx.getImageData(cx, cy, 1, 1).data;
+      const r = pixel[0] / 255;
+      const g = pixel[1] / 255;
+      const b = pixel[2] / 255;
+      const a = pixel[3] / 255;
+      const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
+      lightness.push(l);
+      if (colors) {
+        colors.push({ r, g, b, a });
+      }
+    }
+
+    parent.postMessage({ pluginMessage: { type: 'bitmap-result', lightness, colors } }, '*');
+  };
+
+  img.onerror = () => {
+    URL.revokeObjectURL(url);
+    parent.postMessage({ pluginMessage: { type: 'bitmap-result', lightness: localPoints.map(() => 0.5) } }, '*');
+  };
+
+  img.src = url;
+}
 
 // ---- Update UI based on state ----
 function updateUI() {
@@ -263,16 +325,19 @@ function updateUI() {
     boundaryInfo.innerHTML = `<strong>${escapeHtml(b.name)}</strong> <small>(${b.nodeType})</small>${badge}`;
     boundaryInfo.classList.remove('empty');
     generateBtn.disabled = false;
+    bitmapToggleRow.style.display = 'block';
 
     // Show/hide diameter controls
-    if (b.fillType && b.fillType.startsWith('GRADIENT')) {
+    const isBitmap = sampleBitmap.checked;
+    const isGradient = b.fillType && b.fillType.startsWith('GRADIENT');
+    if (isGradient || isBitmap) {
       solidDiameter.style.display = 'none';
       gradientDiameter.style.display = 'block';
       colorSection.style.display = 'block';
     } else {
       solidDiameter.style.display = 'block';
       gradientDiameter.style.display = 'none';
-      colorSection.style.display = 'none';
+      if (!isBitmap) colorSection.style.display = 'none';
     }
 
     // Estimate
@@ -281,6 +346,7 @@ function updateUI() {
     boundaryInfo.textContent = 'Select a shape in Figma';
     boundaryInfo.classList.add('empty');
     generateBtn.disabled = true;
+    bitmapToggleRow.style.display = 'none';
     solidDiameter.style.display = 'block';
     gradientDiameter.style.display = 'none';
     colorSection.style.display = 'none';
@@ -357,6 +423,7 @@ generateBtn.addEventListener('click', () => {
     dotSourceNodeId: state.dotSourceNode ? state.dotSourceNode.id : null,
     boundaryNodeId: state.boundaryNode.id,
     sampleColor: sampleColor.checked,
+    sampleBitmap: sampleBitmap.checked,
   };
 
   parent.postMessage({ pluginMessage: { type: 'generate-dots', ...params } }, '*');
@@ -367,9 +434,15 @@ cancelBtn.addEventListener('click', () => {
   parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
 });
 
+// ---- Bitmap toggle → refresh UI ----
+sampleBitmap.addEventListener('change', () => {
+  if (state.boundaryNode) updateUI();
+});
+
 // ---- Request initial state ----
 parent.postMessage({ pluginMessage: { type: 'request-selection' } }, '*');
 </script>
 
+<canvas id="bitmap-canvas" style="display:none"></canvas>
 </body>
 </html>

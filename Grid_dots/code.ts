@@ -13,6 +13,7 @@ interface GenerateParams {
   dotSourceNodeId: string | null;
   boundaryNodeId: string;
   sampleColor: boolean;
+  sampleBitmap: boolean;
 }
 
 interface ShapeGeometry {
@@ -35,7 +36,9 @@ interface FillResult {
 
 // ---- Plugin Init ----
 
-figma.showUI(__html__, { width: 320, height: 520 });
+figma.showUI(__html__, { width: 320, height: 560 });
+
+let bitmapResolve: ((data: { lightness: number[]; colors?: RGBA[] }) => void) | null = null;
 
 function sendSelectionState() {
   const selection = figma.currentPage.selection;
@@ -109,6 +112,14 @@ figma.ui.onmessage = async (msg: { type: string } & Record<string, unknown>) => 
     figma.closePlugin();
   } else if (msg.type === 'request-selection') {
     sendSelectionState();
+  } else if (msg.type === 'bitmap-result') {
+    if (bitmapResolve) {
+      bitmapResolve({
+        lightness: msg.lightness as number[],
+        colors: msg.colors as RGBA[] | undefined,
+      });
+      bitmapResolve = null;
+    }
   }
 };
 
@@ -590,6 +601,25 @@ function transformPoint(m: Transform, pt: { x: number; y: number }): { x: number
   };
 }
 
+// ---- Base64 Encoding ----
+
+const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let result = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    result += BASE64_CHARS[b0 >> 2];
+    result += BASE64_CHARS[((b0 & 3) << 4) | (b1 >> 4)];
+    result += i + 1 < len ? BASE64_CHARS[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+    result += i + 2 < len ? BASE64_CHARS[b2 & 63] : '=';
+  }
+  return result;
+}
+
 // ---- Main Generation ----
 
 async function handleGenerate(params: GenerateParams) {
@@ -632,33 +662,77 @@ async function handleGenerate(params: GenerateParams) {
     color?: RGBA;
   }
 
-  const gridPoints: GridPoint[] = [];
+  // Filter grid points inside shape
+  interface RawPoint {
+    ax: number;
+    ay: number;
+    lx: number;
+    ly: number;
+  }
+  const rawPoints: RawPoint[] = [];
 
   for (const pt of allPoints) {
     const localPt = transformPoint(invAbsTransform, pt);
     if (!isPointInsideShape(localPt, geometry)) continue;
+    rawPoints.push({ ax: pt.x, ay: pt.y, lx: localPt.x, ly: localPt.y });
+  }
 
-    let diameter: number;
-    let color: RGBA | undefined;
+  const gridPoints: GridPoint[] = [];
 
-    if (fillResult.type === 'gradient' && fillResult.gradient) {
-      const normX = localPt.x / geometry.width;
-      const normY = localPt.y / geometry.height;
-      const sampled = sampleGradient({ x: normX, y: normY }, fillResult.gradient);
-      const lightness = getLightness(sampled);
-      diameter = params.maxDiameter - lightness * (params.maxDiameter - params.minDiameter);
-      if (params.sampleColor) {
-        color = sampled;
-      }
-    } else {
-      diameter = params.dotDiameter;
-      if (params.sampleColor && fillResult.type === 'solid' && fillResult.color) {
-        color = fillResult.color;
-      }
+  if (params.sampleBitmap) {
+    // Export boundary node as PNG and sample pixel lightness via UI
+    const exportScale = Math.min(4, Math.max(0.5, 2 / params.gridSpacing));
+    const nodeMaxDim = Math.max(boundaryNode.width, boundaryNode.height);
+    const scale = Math.min(exportScale, 4096 / nodeMaxDim);
+    const imageBytes = await boundaryNode.exportAsync({
+      format: 'PNG',
+      constraint: { type: 'SCALE', value: scale },
+    });
+
+    figma.ui.postMessage({
+      type: 'sample-bitmap',
+      imageBase64: uint8ArrayToBase64(imageBytes),
+      scale,
+      localPoints: rawPoints.map((p) => ({ x: p.lx, y: p.ly })),
+      nodeWidth: boundaryNode.width,
+      nodeHeight: boundaryNode.height,
+      sampleColor: params.sampleColor,
+    });
+
+    const result = await new Promise<{ lightness: number[]; colors?: RGBA[] }>((resolve) => {
+      bitmapResolve = resolve;
+    });
+
+    for (let i = 0; i < rawPoints.length; i++) {
+      const l = result.lightness[i];
+      const diameter = Math.max(0.5, params.maxDiameter - l * (params.maxDiameter - params.minDiameter));
+      const color = result.colors ? result.colors[i] : undefined;
+      gridPoints.push({ x: rawPoints[i].ax, y: rawPoints[i].ay, diameter, color });
     }
+  } else {
+    for (const rp of rawPoints) {
+      let diameter: number;
+      let color: RGBA | undefined;
 
-    if (diameter < 0.5) diameter = 0.5;
-    gridPoints.push({ x: pt.x, y: pt.y, diameter, color });
+      if (fillResult.type === 'gradient' && fillResult.gradient) {
+        const normX = rp.lx / geometry.width;
+        const normY = rp.ly / geometry.height;
+        const sampled = sampleGradient({ x: normX, y: normY }, fillResult.gradient);
+        const lightness = getLightness(sampled);
+        diameter = params.maxDiameter - lightness * (params.maxDiameter - params.minDiameter);
+        if (params.sampleColor) {
+          color = sampled;
+        }
+      } else {
+        diameter = params.dotDiameter;
+        if (params.sampleColor && fillResult.type === 'solid' && fillResult.color) {
+          color = fillResult.color;
+        }
+      }
+
+      if (diameter < 0.5) diameter = 0.5;
+      gridPoints.push({ x: rp.ax, y: rp.ay, diameter, color });
+    }
   }
 
   if (gridPoints.length === 0) {
