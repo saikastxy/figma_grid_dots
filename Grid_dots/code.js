@@ -523,6 +523,83 @@ function uint8ArrayToBase64(bytes) {
     }
     return result;
 }
+// ---- Rotation Computation ----
+function pseudoNoise(x, y) {
+    const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    return n - Math.floor(n);
+}
+function smoothNoise(x, y) {
+    return (pseudoNoise(x, y) * 0.5 +
+        pseudoNoise(x * 2.1, y * 2.1) * 0.3 +
+        pseudoNoise(x * 4.3, y * 4.3) * 0.2);
+}
+function computeRotation(pt, center, mode, gridSpacing, curlEnabled, curlIntensity) {
+    const dx = pt.x - center.x;
+    const dy = pt.y - center.y;
+    const deg = 180 / Math.PI;
+    const theta = Math.atan2(dy, dx);
+    const r = Math.sqrt(dx * dx + dy * dy);
+    const s = Math.max(1, gridSpacing);
+    const u = r / s; // normalized radius
+    let rotation;
+    switch (mode) {
+        case 'none':
+            rotation = 0;
+            break;
+        case 'random':
+            rotation = Math.random() * 360;
+            break;
+        case 'radial':
+            rotation = theta * deg;
+            break;
+        case 'vortex':
+            rotation = theta * deg + 90;
+            break;
+        case 'wave-h':
+            rotation = Math.sin(pt.x * 0.03) * 180;
+            break;
+        case 'wave-v':
+            rotation = Math.sin(pt.y * 0.03) * 180;
+            break;
+        case 'noise':
+            rotation = smoothNoise(pt.x * 0.008, pt.y * 0.008) * 360;
+            break;
+        // ---- Spiral curl fields ----
+        // Dots stay on the grid; their rotation follows a spiral vector field.
+        // rotation = (polar angle θ + distance-dependent twist f(r)) in degrees.
+        // f(r) determines the number of visible spiral arms: ~f(r_max)/(2π) arms.
+        case 'archimedean':
+            // Constant radial arm spacing: f(r) ∝ r
+            // ~0.5 turns at r=s, ~4.8 turns at r=10s
+            rotation = (theta + u * 3.0) * deg;
+            break;
+        case 'logarithmic':
+            // Arms spread outward (equiangular): f(r) ∝ log(r)
+            // ~1 turn at r=s, ~3.4 turns at r=10s
+            rotation = (theta + Math.log(u + 1) * 9.0) * deg;
+            break;
+        case 'fermat':
+            // Arms tighter near center (sunflower phyllotaxis): f(r) ∝ √r
+            // ~1 turn at r=s, ~3 turns at r=10s
+            rotation = (theta + Math.sqrt(u) * 6.0) * deg;
+            break;
+        case 'euler':
+            // Clothoid: curvature κ ∝ r, so f(r) ∝ r²
+            // ~0 turns at center → ~4 turns at r=10s (smooth transition)
+            rotation = (theta + u * u * 0.25) * deg;
+            break;
+        default:
+            rotation = 0;
+    }
+    // ---- Curl modifier ----
+    // Constant curl = solid-body rotation: adds uniform angular velocity
+    // curl=0: irrotational; curl>0: counterclockwise circulation
+    // φ_curl = k·r where k = curlIntensity/1000 rad/px
+    if (curlEnabled && curlIntensity > 0) {
+        rotation += (curlIntensity / 1000) * r * deg;
+    }
+    return rotation;
+}
 // ---- Main Generation ----
 function handleGenerate(params) {
     return __awaiter(this, void 0, void 0, function* () {
@@ -550,8 +627,15 @@ function handleGenerate(params) {
             figma.notify('Cannot determine boundary size', { error: true });
             return;
         }
-        const allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
+        const shapeCenter = {
+            x: bounds.x + bounds.width / 2,
+            y: bounds.y + bounds.height / 2,
+        };
         const invAbsTransform = invertMatrix(boundaryNode.absoluteTransform);
+        const MAX_DOTS = 10000;
+        // All modes use the same grid-based point generation.
+        // Spiral modes differ only in rotation computation (see computeRotation).
+        const allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
         const rawPoints = [];
         for (const pt of allPoints) {
             const localPt = transformPoint(invAbsTransform, pt);
@@ -585,7 +669,8 @@ function handleGenerate(params) {
                 const l = result.lightness[i];
                 const diameter = Math.max(0.5, params.maxDiameter - l * (params.maxDiameter - params.minDiameter));
                 const color = result.colors ? result.colors[i] : undefined;
-                gridPoints.push({ x: rawPoints[i].ax, y: rawPoints[i].ay, diameter, color });
+                const rotation = computeRotation({ x: rawPoints[i].ax, y: rawPoints[i].ay }, shapeCenter, params.rotationMode, params.gridSpacing, params.curlEnabled, params.curlIntensity);
+                gridPoints.push({ x: rawPoints[i].ax, y: rawPoints[i].ay, diameter, color, rotation });
             }
         }
         else {
@@ -610,14 +695,14 @@ function handleGenerate(params) {
                 }
                 if (diameter < 0.5)
                     diameter = 0.5;
-                gridPoints.push({ x: rp.ax, y: rp.ay, diameter, color });
+                const rotation = computeRotation({ x: rp.ax, y: rp.ay }, shapeCenter, params.rotationMode, params.gridSpacing, params.curlEnabled, params.curlIntensity);
+                gridPoints.push({ x: rp.ax, y: rp.ay, diameter, color, rotation });
             }
         }
         if (gridPoints.length === 0) {
             figma.notify('No grid points inside the boundary shape', { error: true });
             return;
         }
-        const MAX_DOTS = 10000;
         if (gridPoints.length > MAX_DOTS) {
             figma.notify(`Too many dots (${gridPoints.length}). Increase grid spacing or reduce boundary size.`, { error: true });
             return;
@@ -649,6 +734,9 @@ function handleGenerate(params) {
                 else {
                     dot.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
                 }
+            }
+            if ('rotation' in dot && gp.rotation !== 0) {
+                dot.rotation = gp.rotation;
             }
             figma.currentPage.appendChild(dot);
             nodes.push(dot);

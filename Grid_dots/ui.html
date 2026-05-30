@@ -206,6 +206,30 @@
     </select>
   </label>
   <label><span>Spacing</span><input id="grid-spacing" type="number" value="20" min="2" step="1"></label>
+  <label><span>Rotation</span>
+    <select id="rotation-mode">
+      <option value="none">None</option>
+      <option value="random">Random</option>
+      <option value="radial">Radial</option>
+      <option value="vortex">Vortex</option>
+      <option value="wave-h">Wave H</option>
+      <option value="wave-v">Wave V</option>
+      <option value="noise">Noise Field</option>
+      <option disabled>---</option>
+      <option value="archimedean">Archimedean Spiral</option>
+      <option value="logarithmic">Logarithmic Spiral</option>
+      <option value="fermat">Fermat Spiral</option>
+      <option value="euler">Euler Spiral</option>
+    </select>
+  </label>
+  <label class="toggle-label" style="margin-top:4px">
+    <span>Apply Curl</span>
+    <input id="curl-enabled" type="checkbox">
+  </label>
+  <label id="curl-slider-row" style="display:none">
+    <span>Curl Intensity</span>
+    <input id="curl-intensity" type="range" value="0" min="0" max="100" step="1">
+  </label>
   <div id="estimate" class="estimate"></div>
 </div>
 
@@ -243,6 +267,10 @@ const colorSection = document.getElementById('color-section');
 const sampleColor = document.getElementById('sample-color');
 const sampleBitmap = document.getElementById('sample-bitmap');
 const bitmapToggleRow = document.getElementById('bitmap-toggle-row');
+const rotationMode = document.getElementById('rotation-mode');
+const curlEnabled = document.getElementById('curl-enabled');
+const curlIntensity = document.getElementById('curl-intensity');
+const curlSliderRow = document.getElementById('curl-slider-row');
 
 // ---- Message from plugin ----
 window.addEventListener('message', (event) => {
@@ -424,6 +452,9 @@ generateBtn.addEventListener('click', () => {
     boundaryNodeId: state.boundaryNode.id,
     sampleColor: sampleColor.checked,
     sampleBitmap: sampleBitmap.checked,
+    rotationMode: rotationMode.value,
+    curlEnabled: curlEnabled.checked,
+    curlIntensity: parseInt(curlIntensity.value) || 0,
   };
 
   parent.postMessage({ pluginMessage: { type: 'generate-dots', ...params } }, '*');
@@ -432,6 +463,11 @@ generateBtn.addEventListener('click', () => {
 // ---- Cancel ----
 cancelBtn.addEventListener('click', () => {
   parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
+});
+
+// ---- Curl toggle → show/hide slider ----
+curlEnabled.addEventListener('change', () => {
+  curlSliderRow.style.display = curlEnabled.checked ? 'flex' : 'none';
 });
 
 // ---- Bitmap toggle → refresh UI ----
