@@ -196,6 +196,15 @@
 
 <div class="section">
   <div class="section-title">Grid Settings</div>
+  <label class="toggle-label" style="margin-bottom:6px">
+    <span>Concentric Circles</span>
+    <input id="concentric-enabled" type="checkbox">
+  </label>
+  <label class="toggle-label" style="margin-bottom:6px">
+    <span>Polar Curve Grid</span>
+    <input id="polar-enabled" type="checkbox">
+  </label>
+  <div id="grid-controls">
   <label><span>Pattern</span>
     <select id="tile-mode">
       <option value="quad">Quad Grid</option>
@@ -206,6 +215,33 @@
     </select>
   </label>
   <label><span>Spacing</span><input id="grid-spacing" type="number" value="20" min="2" step="1"></label>
+  </div>
+  <div id="concentric-controls" style="display:none">
+    <label><span>Ring Spacing</span>
+      <select id="concentric-spacing-type">
+        <option value="equal">Equal Distance</option>
+        <option value="arithmetic">Arithmetic</option>
+        <option value="geometric">Geometric</option>
+      </select>
+    </label>
+    <label><span>Spacing</span><input id="concentric-spacing" type="number" value="20" min="2" step="1"></label>
+    <label id="concentric-delta-row" style="display:none"><span>Delta</span><input id="concentric-delta" type="number" value="5" min="0" step="0.5"></label>
+    <label id="concentric-ratio-row" style="display:none"><span>Ratio</span><input id="concentric-ratio" type="number" value="1.2" min="0.1" step="0.1"></label>
+    <label><span>Phase Offset</span><input id="concentric-phase" type="range" value="0" min="0" max="360" step="1"></label>
+  </div>
+  <div id="polar-controls" style="display:none">
+    <label><span>n (skip)</span><input id="polar-skip" type="range" value="1" min="0" max="10" step="1"></label>
+    <label><span>Curvature</span><input id="polar-n" type="range" value="1" min="-3" max="3" step="0.1"></label>
+    <label><span>Spiral</span>
+      <select id="polar-spiral-type">
+        <option value="archimedean">Archimedean</option>
+        <option value="fermat">Fermat</option>
+        <option value="logarithmic">Logarithmic</option>
+        <option value="euler">Euler</option>
+      </select>
+    </label>
+    <div style="text-align:center;font-size:10px;color:#888">R = distance to farthest boundary point</div>
+  </div>
   <label><span>Rotation</span>
     <select id="rotation-mode">
       <option value="none">None</option>
@@ -271,6 +307,21 @@ const rotationMode = document.getElementById('rotation-mode');
 const curlEnabled = document.getElementById('curl-enabled');
 const curlIntensity = document.getElementById('curl-intensity');
 const curlSliderRow = document.getElementById('curl-slider-row');
+const concentricEnabled = document.getElementById('concentric-enabled');
+const gridControls = document.getElementById('grid-controls');
+const concentricControls = document.getElementById('concentric-controls');
+const concentricSpacingType = document.getElementById('concentric-spacing-type');
+const concentricSpacing = document.getElementById('concentric-spacing');
+const concentricDeltaRow = document.getElementById('concentric-delta-row');
+const concentricDelta = document.getElementById('concentric-delta');
+const concentricRatioRow = document.getElementById('concentric-ratio-row');
+const concentricRatio = document.getElementById('concentric-ratio');
+const concentricPhase = document.getElementById('concentric-phase');
+const polarEnabled = document.getElementById('polar-enabled');
+const polarControls = document.getElementById('polar-controls');
+const polarN = document.getElementById('polar-n');
+const polarSkip = document.getElementById('polar-skip');
+const polarSpiralType = document.getElementById('polar-spiral-type');
 
 // ---- Message from plugin ----
 window.addEventListener('message', (event) => {
@@ -397,19 +448,83 @@ function updateEstimate(bounds) {
     estimateEl.textContent = '';
     return;
   }
-  const spacing = parseFloat(gridSpacing.value) || 20;
-  const mode = tileMode.value;
-  let cols, rows;
-  if (mode === 'quad') {
-    cols = Math.ceil(bounds.width / spacing) + 1;
-    rows = Math.ceil(bounds.height / spacing) + 1;
+
+  let total;
+
+  if (polarEnabled.checked) {
+    total = estimatePolarPoints(bounds);
+  } else if (concentricEnabled.checked) {
+    total = estimateConcentricPoints(bounds);
   } else {
-    cols = Math.ceil(bounds.width / spacing) + 1;
-    rows = Math.ceil(bounds.height / (spacing * Math.sqrt(3) / 2)) + 1;
+    const spacing = parseFloat(gridSpacing.value) || 20;
+    const mode = tileMode.value;
+    let cols, rows;
+    if (mode === 'hex') {
+      const vSpacing = spacing * (Math.sqrt(3) / 2);
+      cols = Math.ceil(bounds.width / spacing) + 1;
+      rows = Math.ceil(bounds.height / vSpacing) + 1;
+    } else {
+      cols = Math.ceil(bounds.width / spacing) + 1;
+      rows = Math.ceil(bounds.height / spacing) + 1;
+    }
+    total = cols * rows;
+    if (mode === 'diamond') total *= 2;
   }
-  const total = cols * rows;
+
   estimateEl.textContent = '~' + total + ' dots (upper bound)';
   estimateEl.className = 'estimate' + (total > 5000 ? ' high' : '');
+}
+
+function estimateConcentricPoints(bounds) {
+  const cx = bounds.width / 2;
+  const cy = bounds.height / 2;
+  const maxRadius = Math.sqrt(cx * cx + cy * cy);
+  const spacing = parseFloat(concentricSpacing.value) || 20;
+  const type = concentricSpacingType.value;
+  const delta = parseFloat(concentricDelta.value) || 0;
+  const ratio = parseFloat(concentricRatio.value) || 1;
+
+  let total = 1; // center point
+  let i = 1;
+  const maxRings = 1000;
+
+  while (i <= maxRings) {
+    let r;
+    if (type === 'equal') {
+      r = i * spacing;
+    } else if (type === 'arithmetic') {
+      r = i * spacing + (i * (i - 1) / 2) * delta;
+    } else {
+      if (Math.abs(ratio - 1) < 1e-9) {
+        r = i * spacing;
+      } else {
+        r = spacing * (1 - Math.pow(ratio, i)) / (1 - ratio);
+      }
+    }
+
+    if (r > maxRadius || r < 0) break;
+
+    const n = Math.max(1, Math.floor(2 * Math.PI * r / spacing));
+    total += n;
+    i++;
+  }
+
+  return total;
+}
+
+function estimatePolarPoints(bounds) {
+  const cx = bounds.width / 2;
+  const cy = bounds.height / 2;
+  const maxRadius = Math.sqrt(cx * cx + cy * cy);
+  const densitySpacing = parseFloat(gridSpacing.value) || 20;
+  const skip = parseInt(polarSkip.value) || 0;
+
+  const numArms = Math.max(1, Math.floor(2 * Math.PI * maxRadius / densitySpacing));
+  const step = Math.max(1, skip + 1);
+  const generatedArms = Math.ceil(numArms / step);
+  const numRings = Math.floor(maxRadius / densitySpacing);
+
+  return 1 + generatedArms * numRings;
 }
 
 function escapeHtml(str) {
@@ -455,6 +570,16 @@ generateBtn.addEventListener('click', () => {
     rotationMode: rotationMode.value,
     curlEnabled: curlEnabled.checked,
     curlIntensity: parseInt(curlIntensity.value) || 0,
+    concentricEnabled: concentricEnabled.checked,
+    concentricSpacingType: concentricSpacingType.value,
+    concentricSpacing: parseFloat(concentricSpacing.value) || 20,
+    concentricDelta: parseFloat(concentricDelta.value) || 0,
+    concentricRatio: parseFloat(concentricRatio.value) || 1,
+    concentricPhaseOffset: parseInt(concentricPhase.value) || 0,
+    polarEnabled: polarEnabled.checked,
+    polarN: parseFloat(polarN.value) || 0,
+    polarSkip: parseInt(polarSkip.value) || 0,
+    polarSpiralType: polarSpiralType.value,
   };
 
   parent.postMessage({ pluginMessage: { type: 'generate-dots', ...params } }, '*');
@@ -468,6 +593,78 @@ cancelBtn.addEventListener('click', () => {
 // ---- Curl toggle → show/hide slider ----
 curlEnabled.addEventListener('change', () => {
   curlSliderRow.style.display = curlEnabled.checked ? 'flex' : 'none';
+});
+
+// ---- Concentric toggle → show/hide grid vs concentric controls ----
+concentricEnabled.addEventListener('change', () => {
+  const on = concentricEnabled.checked;
+  if (on && polarEnabled.checked) {
+    polarEnabled.checked = false;
+    polarControls.style.display = 'none'; // manual: programmatic change doesn't fire event
+  }
+  gridControls.style.display = on || polarEnabled.checked ? 'none' : 'block';
+  concentricControls.style.display = on ? 'block' : 'none';
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+
+// ---- Polar toggle → show/hide grid vs polar controls ----
+polarEnabled.addEventListener('change', () => {
+  const on = polarEnabled.checked;
+  if (on && concentricEnabled.checked) {
+    concentricEnabled.checked = false;
+    concentricControls.style.display = 'none'; // manual: programmatic change doesn't fire event
+  }
+  gridControls.style.display = on || concentricEnabled.checked ? 'none' : 'block';
+  polarControls.style.display = on ? 'block' : 'none';
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+
+// ---- Concentric spacing type → show/hide delta/ratio ----
+concentricSpacingType.addEventListener('change', () => {
+  const type = concentricSpacingType.value;
+  concentricDeltaRow.style.display = type === 'arithmetic' ? 'flex' : 'none';
+  concentricRatioRow.style.display = type === 'geometric' ? 'flex' : 'none';
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+
+// ---- Concentric param changes → update estimate ----
+concentricSpacing.addEventListener('input', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+concentricDelta.addEventListener('input', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+concentricRatio.addEventListener('input', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+
+// ---- Polar param changes → update estimate ----
+polarN.addEventListener('input', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+polarSkip.addEventListener('input', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+polarSpiralType.addEventListener('change', () => {
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
 });
 
 // ---- Bitmap toggle → refresh UI ----

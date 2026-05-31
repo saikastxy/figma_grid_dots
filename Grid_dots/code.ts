@@ -17,6 +17,16 @@ interface GenerateParams {
   rotationMode: 'none' | 'random' | 'radial' | 'vortex' | 'wave-h' | 'wave-v' | 'noise' | 'archimedean' | 'logarithmic' | 'fermat' | 'euler';
   curlEnabled: boolean;
   curlIntensity: number; // 0–100 slider
+  concentricEnabled: boolean;
+  concentricSpacingType: 'equal' | 'arithmetic' | 'geometric';
+  concentricSpacing: number;
+  concentricDelta: number;
+  concentricRatio: number;
+  concentricPhaseOffset: number; // 0–360 degrees
+  polarEnabled: boolean;
+  polarN: number;              // curvature parameter, [-3, 3]
+  polarSkip: number;           // arm skip: generate every (skip+1)th arm, default 1
+  polarSpiralType: 'archimedean' | 'fermat' | 'logarithmic' | 'euler';
 }
 
 interface ShapeGeometry {
@@ -510,6 +520,138 @@ function estimatePointCount(
   }
 }
 
+// ---- Concentric Circle Point Generation ----
+
+function generateConcentricPoints(
+  center: { x: number; y: number },
+  maxRadius: number,
+  spacingType: 'equal' | 'arithmetic' | 'geometric',
+  spacing: number,
+  delta: number,
+  ratio: number,
+  phaseOffsetDeg: number,
+): { x: number; y: number }[] {
+  const points: { x: number; y: number }[] = [];
+  if (spacing <= 0) return points;
+
+  const phaseOffsetRad = (phaseOffsetDeg * Math.PI) / 180;
+
+  // Center point
+  points.push({ x: center.x, y: center.y });
+
+  let ringIndex = 1;
+  const maxRings = 10000; // safety cap
+
+  while (ringIndex <= maxRings) {
+    // Compute ring radius based on spacing type
+    let ringRadius: number;
+    if (spacingType === 'equal') {
+      ringRadius = ringIndex * spacing;
+    } else if (spacingType === 'arithmetic') {
+      // r_i = i*spacing + i*(i-1)/2 * delta
+      ringRadius = ringIndex * spacing + (ringIndex * (ringIndex - 1) / 2) * delta;
+    } else {
+      // geometric: r_i = spacing * (1 - ratio^i) / (1 - ratio)
+      if (Math.abs(ratio - 1) < 1e-9) {
+        ringRadius = ringIndex * spacing;
+      } else {
+        ringRadius = spacing * (1 - Math.pow(ratio, ringIndex)) / (1 - ratio);
+      }
+    }
+
+    if (ringRadius > maxRadius || ringRadius < 0) break;
+
+    // Number of points: maintain consistent arc density ~= spacing
+    const circumference = 2 * Math.PI * ringRadius;
+    const n = Math.max(1, Math.floor(circumference / spacing));
+
+    // Phase offset accumulates per ring
+    const ringPhase = ringIndex * phaseOffsetRad;
+
+    for (let j = 0; j < n; j++) {
+      const angle = j * (2 * Math.PI / n) + ringPhase;
+      points.push({
+        x: center.x + ringRadius * Math.cos(angle),
+        y: center.y + ringRadius * Math.sin(angle),
+      });
+    }
+
+    ringIndex++;
+  }
+
+  return points;
+}
+
+// ---- Polar Curve Grid Point Generation ----
+// R = maxRadius (auto-computed from shape geometry).
+// curvature controls total bend at r=R (in units of 2π).
+// skip controls arm density: only every (skip+1)th arm is generated.
+// spiralType selects the radial twist profile.
+
+function computeSpiralTwist(
+  r: number,
+  R: number,
+  curvature: number,
+  type: 'archimedean' | 'fermat' | 'logarithmic' | 'euler',
+): number {
+  const u = r / R; // normalized radius [0, 1]
+  let f: number;
+  switch (type) {
+    case 'archimedean':
+      f = u;
+      break;
+    case 'fermat':
+      f = Math.sqrt(u);
+      break;
+    case 'logarithmic':
+      // log(1 + u) / log(2) — at u=1: f=1
+      f = u < 1e-9 ? 0 : Math.log(1 + u) / Math.log(2);
+      break;
+    case 'euler':
+      f = u * u;
+      break;
+    default:
+      f = u;
+  }
+  return curvature * 2 * Math.PI * f;
+}
+
+function generatePolarPoints(
+  center: { x: number; y: number },
+  maxRadius: number,
+  curvature: number,
+  skip: number,
+  spiralType: 'archimedean' | 'fermat' | 'logarithmic' | 'euler',
+  densitySpacing: number,
+): { x: number; y: number }[] {
+  const points: { x: number; y: number }[] = [];
+  if (maxRadius <= 0 || densitySpacing <= 0) return points;
+
+  // Center point
+  points.push({ x: center.x, y: center.y });
+
+  const numRings = Math.floor(maxRadius / densitySpacing);
+  const numArms = Math.max(1, Math.floor((2 * Math.PI * maxRadius) / densitySpacing));
+  const step = Math.max(1, Math.floor(skip) + 1);
+
+  for (let arm = 0; arm < numArms; arm += step) {
+    const baseAngle = (arm * 2 * Math.PI) / numArms;
+
+    for (let i = 1; i <= numRings; i++) {
+      const r = i * densitySpacing;
+      const twist = computeSpiralTwist(r, maxRadius, curvature, spiralType);
+      const curvedAngle = baseAngle + twist;
+
+      points.push({
+        x: center.x + r * Math.cos(curvedAngle),
+        y: center.y + r * Math.sin(curvedAngle),
+      });
+    }
+  }
+
+  return points;
+}
+
 // ---- Gradient Sampling ----
 
 function getLightness(color: RGBA): number {
@@ -773,9 +915,34 @@ async function handleGenerate(params: GenerateParams) {
   const invAbsTransform = invertMatrix(boundaryNode.absoluteTransform);
   const MAX_DOTS = 10000;
 
-  // All modes use the same grid-based point generation.
-  // Spiral modes differ only in rotation computation (see computeRotation).
-  const allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
+  // Generate candidate points from bounding box
+  let allPoints: { x: number; y: number }[];
+
+  if (params.polarEnabled) {
+    const cx = bounds.width / 2;
+    const cy = bounds.height / 2;
+    const maxRadius = Math.sqrt(cx * cx + cy * cy);
+    const center = { x: bounds.x + cx, y: bounds.y + cy };
+
+    allPoints = generatePolarPoints(center, maxRadius, params.polarN, params.polarSkip, params.polarSpiralType, params.gridSpacing);
+  } else if (params.concentricEnabled) {
+    const cx = bounds.width / 2;
+    const cy = bounds.height / 2;
+    const maxRadius = Math.sqrt(cx * cx + cy * cy);
+    const center = { x: bounds.x + cx, y: bounds.y + cy };
+
+    allPoints = generateConcentricPoints(
+      center,
+      maxRadius,
+      params.concentricSpacingType,
+      params.concentricSpacing,
+      params.concentricDelta,
+      params.concentricRatio,
+      params.concentricPhaseOffset,
+    );
+  } else {
+    allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
+  }
   const rawPoints: RawPoint[] = [];
 
   for (const pt of allPoints) {
