@@ -36,6 +36,8 @@ interface ShapeGeometry {
   height: number;
   vertices?: { x: number; y: number }[];
   loops?: { x: number; y: number }[][];
+  cornerRadii?: [number, number, number, number]; // [TL, TR, BR, BL] for rect/frame
+  cornerRadius?: number; // uniform per-vertex radius for polygon/star
 }
 
 interface FillResult {
@@ -153,7 +155,12 @@ function extractGeometry(node: SceneNode): ShapeGeometry | null {
     const h = shape.height;
 
     if (nodeType === 'RECTANGLE') {
-      return {
+      const rect = node as RectangleNode;
+      const rTL = rect.topLeftRadius;
+      const rTR = rect.topRightRadius;
+      const rBR = rect.bottomRightRadius;
+      const rBL = rect.bottomLeftRadius;
+      const geometry: ShapeGeometry = {
         type: 'rect',
         width: w,
         height: h,
@@ -164,6 +171,10 @@ function extractGeometry(node: SceneNode): ShapeGeometry | null {
           { x: 0, y: h },
         ],
       };
+      if (rTL > 0 || rTR > 0 || rBR > 0 || rBL > 0) {
+        geometry.cornerRadii = [rTL, rTR, rBR, rBL];
+      }
+      return geometry;
     }
 
     if (nodeType === 'ELLIPSE') {
@@ -173,13 +184,23 @@ function extractGeometry(node: SceneNode): ShapeGeometry | null {
     if (nodeType === 'POLYGON') {
       const polygon = node as PolygonNode;
       const vertices = computePolygonVertices(w, h, polygon.pointCount, 0, 0);
-      return { type: 'polygon', width: w, height: h, vertices };
+      const geometry: ShapeGeometry = { type: 'polygon', width: w, height: h, vertices };
+      const cr = polygon.cornerRadius;
+      if (typeof cr === 'number' && cr > 0) {
+        geometry.cornerRadius = cr;
+      }
+      return geometry;
     }
 
     if (nodeType === 'STAR') {
       const star = node as StarNode;
       const vertices = computeStarVertices(w, h, star.pointCount, star.innerRadius, 0);
-      return { type: 'star', width: w, height: h, vertices };
+      const geometry: ShapeGeometry = { type: 'star', width: w, height: h, vertices };
+      const cr = star.cornerRadius;
+      if (typeof cr === 'number' && cr > 0) {
+        geometry.cornerRadius = cr;
+      }
+      return geometry;
     }
   }
 
@@ -213,7 +234,11 @@ function extractGeometry(node: SceneNode): ShapeGeometry | null {
     const frame = node as FrameNode;
     const w = frame.width;
     const h = frame.height;
-    return {
+    const rTL = frame.topLeftRadius;
+    const rTR = frame.topRightRadius;
+    const rBR = frame.bottomRightRadius;
+    const rBL = frame.bottomLeftRadius;
+    const geometry: ShapeGeometry = {
       type: 'frame',
       width: w,
       height: h,
@@ -224,6 +249,10 @@ function extractGeometry(node: SceneNode): ShapeGeometry | null {
         { x: 0, y: h },
       ],
     };
+    if (rTL > 0 || rTR > 0 || rBR > 0 || rBL > 0) {
+      geometry.cornerRadii = [rTL, rTR, rBR, rBL];
+    }
+    return geometry;
   }
 
   return null;
@@ -368,7 +397,14 @@ function analyzeFill(node: SceneNode): FillResult {
 function isPointInsideShape(localPt: { x: number; y: number }, geom: ShapeGeometry): boolean {
   switch (geom.type) {
     case 'rect':
+      if (geom.cornerRadii) {
+        return isInsideRoundedRect(localPt, geom.width, geom.height, geom.cornerRadii);
+      }
+      return localPt.x >= 0 && localPt.x <= geom.width && localPt.y >= 0 && localPt.y <= geom.height;
     case 'frame':
+      if (geom.cornerRadii) {
+        return isInsideRoundedRect(localPt, geom.width, geom.height, geom.cornerRadii);
+      }
       return localPt.x >= 0 && localPt.x <= geom.width && localPt.y >= 0 && localPt.y <= geom.height;
     case 'ellipse': {
       const cx = geom.width / 2;
@@ -383,6 +419,9 @@ function isPointInsideShape(localPt: { x: number; y: number }, geom: ShapeGeomet
     case 'polygon':
     case 'star':
       if (geom.vertices && geom.vertices.length >= 3) {
+        if (geom.cornerRadius && geom.cornerRadius > 0) {
+          return isInsideRoundedPolygon(localPt, geom.vertices, geom.cornerRadius);
+        }
         return pointInPolygon(localPt, geom.vertices);
       }
       return localPt.x >= 0 && localPt.x <= geom.width && localPt.y >= 0 && localPt.y <= geom.height;
@@ -400,6 +439,122 @@ function isPointInsideShape(localPt: { x: number; y: number }, geom: ShapeGeomet
     default:
       return localPt.x >= 0 && localPt.x <= geom.width && localPt.y >= 0 && localPt.y <= geom.height;
   }
+}
+
+function isInsideRoundedRect(
+  pt: { x: number; y: number },
+  w: number,
+  h: number,
+  radii: [number, number, number, number],
+): boolean {
+  const { x, y } = pt;
+  if (x < 0 || x > w || y < 0 || y > h) return false;
+
+  const maxR = Math.min(w, h) / 2;
+  const rTL = Math.min(radii[0], maxR);
+  const rTR = Math.min(radii[1], maxR);
+  const rBR = Math.min(radii[2], maxR);
+  const rBL = Math.min(radii[3], maxR);
+
+  if (x < rTL && y < rTL) {
+    const dx = x - rTL, dy = y - rTL;
+    return dx * dx + dy * dy <= rTL * rTL;
+  }
+  if (x > w - rTR && y < rTR) {
+    const dx = x - (w - rTR), dy = y - rTR;
+    return dx * dx + dy * dy <= rTR * rTR;
+  }
+  if (x > w - rBR && y > h - rBR) {
+    const dx = x - (w - rBR), dy = y - (h - rBR);
+    return dx * dx + dy * dy <= rBR * rBR;
+  }
+  if (x < rBL && y > h - rBL) {
+    const dx = x - rBL, dy = y - (h - rBL);
+    return dx * dx + dy * dy <= rBL * rBL;
+  }
+
+  return true;
+}
+
+// Rounded polygon point test. For each convex vertex, computes the
+// rounding-circle center C (inset from both edges by cornerRadius) and
+// excludes points that lie on the vertex side of the chord Q1-Q2 yet
+// fall outside the circle — those are in the corner-cut region.
+function isInsideRoundedPolygon(
+  pt: { x: number; y: number },
+  vertices: { x: number; y: number }[],
+  cornerRadius: number,
+): boolean {
+  if (!pointInPolygon(pt, vertices)) return false;
+  if (cornerRadius <= 0) return true;
+
+  const n = vertices.length;
+  const r = cornerRadius;
+  const r2 = r * r;
+
+  for (let i = 0; i < n; i++) {
+    const V = vertices[i];
+    const dx = pt.x - V.x;
+    const dy = pt.y - V.y;
+    if (dx * dx + dy * dy < 1e-9) continue; // exactly on vertex — keep
+
+    const Vp = vertices[(i - 1 + n) % n];
+    const Vn = vertices[(i + 1) % n];
+
+    // Edge direction vectors (node-local, y-down)
+    const e1x = V.x - Vp.x;
+    const e1y = V.y - Vp.y;
+    const e2x = Vn.x - V.x;
+    const e2y = Vn.y - V.y;
+
+    // Cross product: positive = convex for CW polygon in y-down
+    if (e1x * e2y - e1y * e2x <= 0) continue;
+
+    const len1 = Math.sqrt(e1x * e1x + e1y * e1y);
+    const len2 = Math.sqrt(e2x * e2x + e2y * e2y);
+    if (len1 < 1e-9 || len2 < 1e-9) continue;
+
+    const d1x = e1x / len1;
+    const d1y = e1y / len1;
+    const d2x = e2x / len2;
+    const d2y = e2y / len2;
+
+    // Offset points on each edge, r back/ahead from V
+    const Q1x = V.x - d1x * r;
+    const Q1y = V.y - d1y * r;
+    const Q2x = V.x + d2x * r;
+    const Q2y = V.y + d2y * r;
+
+    // Interior normals (right of edge direction in y-down)
+    const n1x = -d1y;
+    const n1y = d1x;
+    const n2x = -d2y;
+    const n2y = d2x;
+
+    // Arc center C = intersection of lines through Q1,Q2 along normals
+    const denom = n1x * n2y - n1y * n2x;
+    if (Math.abs(denom) < 1e-12) continue;
+
+    const qdx = Q2x - Q1x;
+    const qdy = Q2y - Q1y;
+    const t = (qdx * n2y - qdy * n2x) / denom;
+    const Cx = Q1x + t * n1x;
+    const Cy = Q1y + t * n1y;
+
+    // Is pt on the V side of chord Q1-Q2?
+    const sideV = (V.x - Q1x) * (Q2y - Q1y) - (V.y - Q1y) * (Q2x - Q1x);
+    const sideP = (pt.x - Q1x) * (Q2y - Q1y) - (pt.y - Q1y) * (Q2x - Q1x);
+    if (sideV * sideP <= 0) continue; // pt is on body side of chord
+
+    // Pt on V side: if outside the rounding circle → corner cut
+    const cdx = pt.x - Cx;
+    const cdy = pt.y - Cy;
+    if (cdx * cdx + cdy * cdy > r2) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function pointInPolygon(
