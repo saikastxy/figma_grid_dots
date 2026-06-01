@@ -96,6 +96,19 @@
   input[type="number"] {
     width: 60px;
   }
+	input[type="range"] {
+		flex: 1;
+		max-width: 80px;
+	}
+	.slider-value {
+		display: inline-block;
+		min-width: 28px;
+		text-align: right;
+		font-size: var(--font-size);
+		font-weight: 600;
+		color: var(--text);
+		flex-shrink: 0;
+	}
   .row {
     display: flex;
     gap: 8px;
@@ -204,6 +217,10 @@
     <span>Polar Curve Grid</span>
     <input id="polar-enabled" type="checkbox">
   </label>
+  <label class="toggle-label" style="margin-bottom:6px">
+    <span>Phyllotaxis (Sunflower)</span>
+    <input id="phyllotaxis-enabled" type="checkbox">
+  </label>
   <div id="grid-controls">
   <label><span>Pattern</span>
     <select id="tile-mode">
@@ -227,11 +244,11 @@
     <label><span>Spacing</span><input id="concentric-spacing" type="number" value="20" min="2" step="1"></label>
     <label id="concentric-delta-row" style="display:none"><span>Delta</span><input id="concentric-delta" type="number" value="5" min="0" step="0.5"></label>
     <label id="concentric-ratio-row" style="display:none"><span>Ratio</span><input id="concentric-ratio" type="number" value="1.2" min="0.1" step="0.1"></label>
-    <label><span>Phase Offset</span><input id="concentric-phase" type="range" value="0" min="0" max="360" step="1"></label>
+    <label><span>Phase Offset</span><input id="concentric-phase" type="range" value="0" min="0" max="360" step="1"><span class="slider-value" id="val-concentric-phase">0</span></label>
   </div>
   <div id="polar-controls" style="display:none">
-    <label><span>n (skip)</span><input id="polar-skip" type="range" value="1" min="0" max="10" step="1"></label>
-    <label><span>Curvature</span><input id="polar-n" type="range" value="1" min="-3" max="3" step="0.1"></label>
+    <label><span>n (skip)</span><input id="polar-skip" type="range" value="1" min="0" max="10" step="1"><span class="slider-value" id="val-polar-skip">1</span></label>
+    <label><span>Curvature</span><input id="polar-n" type="range" value="1" min="-3" max="3" step="0.1"><span class="slider-value" id="val-polar-n">1</span></label>
     <label><span>Spiral</span>
       <select id="polar-spiral-type">
         <option value="archimedean">Archimedean</option>
@@ -264,7 +281,7 @@
   </label>
   <label id="curl-slider-row" style="display:none">
     <span>Curl Intensity</span>
-    <input id="curl-intensity" type="range" value="0" min="0" max="100" step="1">
+    <input id="curl-intensity" type="range" value="0" min="0" max="100" step="1"><span class="slider-value" id="val-curl-intensity">0</span>
   </label>
   <div id="estimate" class="estimate"></div>
 </div>
@@ -322,7 +339,14 @@ const polarControls = document.getElementById('polar-controls');
 const polarN = document.getElementById('polar-n');
 const polarSkip = document.getElementById('polar-skip');
 const polarSpiralType = document.getElementById('polar-spiral-type');
+	const phyllotaxisEnabled = document.getElementById('phyllotaxis-enabled');
 
+
+	// Slider value displays
+	const valConcentricPhase = document.getElementById('val-concentric-phase');
+	const valPolarSkip = document.getElementById('val-polar-skip');
+	const valPolarN = document.getElementById('val-polar-n');
+	const valCurlIntensity = document.getElementById('val-curl-intensity');
 // ---- Message from plugin ----
 window.addEventListener('message', (event) => {
   const msg = event.data.pluginMessage;
@@ -455,6 +479,8 @@ function updateEstimate(bounds) {
     total = estimatePolarPoints(bounds);
   } else if (concentricEnabled.checked) {
     total = estimateConcentricPoints(bounds);
+  } else if (phyllotaxisEnabled.checked) {
+    total = estimatePhyllotaxisPoints(bounds);
   } else {
     const spacing = parseFloat(gridSpacing.value) || 20;
     const mode = tileMode.value;
@@ -504,7 +530,7 @@ function estimateConcentricPoints(bounds) {
 
     if (r > maxRadius || r < 0) break;
 
-    const n = Math.max(1, Math.floor(2 * Math.PI * r / spacing));
+    const n = Math.max(1, Math.round(2 * Math.PI * r / spacing));
     total += n;
     i++;
   }
@@ -518,13 +544,53 @@ function estimatePolarPoints(bounds) {
   const maxRadius = Math.sqrt(cx * cx + cy * cy);
   const densitySpacing = parseFloat(gridSpacing.value) || 20;
   const skip = parseInt(polarSkip.value) || 0;
+  const curvature = parseFloat(polarN.value) || 0;
+  const spiralType = polarSpiralType.value;
 
   const numArms = Math.max(1, Math.floor(2 * Math.PI * maxRadius / densitySpacing));
   const step = Math.max(1, skip + 1);
-  const generatedArms = Math.ceil(numArms / step);
-  const numRings = Math.floor(maxRadius / densitySpacing);
+  const generatedArms = Math.max(1, Math.ceil(numArms / step));
 
-  return 1 + generatedArms * numRings;
+  // Estimate arc length of one spiral arm via quick numerical integration
+  const maxStretch = Math.max(1, Math.abs(curvature) * 2 * Math.PI);
+  const oversample = Math.max(2, Math.ceil(maxStretch / 4));
+  const fineSteps = Math.max(
+    Math.floor(maxRadius / densitySpacing) * oversample,
+    oversample * 2,
+  );
+
+  let totalArc = 0;
+  let prevR = 0, prevTwist = 0;
+  for (let i = 1; i <= fineSteps; i++) {
+    const ri = (i / fineSteps) * maxRadius;
+    const u = ri / maxRadius;
+    let f;
+    switch (spiralType) {
+      case 'archimedean': f = u; break;
+      case 'fermat': f = Math.sqrt(u); break;
+      case 'logarithmic': f = u < 1e-9 ? 0 : Math.log(1 + u) / Math.log(2); break;
+      case 'euler': f = u * u; break;
+      default: f = u;
+    }
+    const twist = curvature * 2 * Math.PI * f;
+    const dr = ri - prevR;
+    const dTheta = twist - prevTwist;
+    const rMid = (ri + prevR) / 2;
+    totalArc += Math.sqrt(dr * dr + rMid * rMid * dTheta * dTheta);
+    prevR = ri;
+    prevTwist = twist;
+  }
+
+  const pointsPerArm = Math.ceil(totalArc / densitySpacing);
+  return 1 + generatedArms * pointsPerArm;
+}
+
+function estimatePhyllotaxisPoints(bounds) {
+  const cx = bounds.width / 2;
+  const cy = bounds.height / 2;
+  const maxRadius = Math.sqrt(cx * cx + cy * cy);
+  const spacing = parseFloat(gridSpacing.value) || 20;
+  return 1 + Math.floor((maxRadius / spacing) ** 2);
 }
 
 function escapeHtml(str) {
@@ -580,6 +646,7 @@ generateBtn.addEventListener('click', () => {
     polarN: parseFloat(polarN.value) || 0,
     polarSkip: parseInt(polarSkip.value) || 0,
     polarSpiralType: polarSpiralType.value,
+    phyllotaxisEnabled: phyllotaxisEnabled.checked,
   };
 
   parent.postMessage({ pluginMessage: { type: 'generate-dots', ...params } }, '*');
@@ -600,8 +667,12 @@ concentricEnabled.addEventListener('change', () => {
   const on = concentricEnabled.checked;
   if (on && polarEnabled.checked) {
     polarEnabled.checked = false;
-    polarControls.style.display = 'none'; // manual: programmatic change doesn't fire event
+    polarControls.style.display = 'none';
   }
+  if (on && phyllotaxisEnabled.checked) {
+    phyllotaxisEnabled.checked = false;
+  }
+  // phyllotaxis uses the same spacing control, so keep gridControls visible
   gridControls.style.display = on || polarEnabled.checked ? 'none' : 'block';
   concentricControls.style.display = on ? 'block' : 'none';
   if (state.boundaryNode && state.boundaryNode.bounds) {
@@ -614,10 +685,31 @@ polarEnabled.addEventListener('change', () => {
   const on = polarEnabled.checked;
   if (on && concentricEnabled.checked) {
     concentricEnabled.checked = false;
-    concentricControls.style.display = 'none'; // manual: programmatic change doesn't fire event
+    concentricControls.style.display = 'none';
+  }
+  if (on && phyllotaxisEnabled.checked) {
+    phyllotaxisEnabled.checked = false;
   }
   gridControls.style.display = on || concentricEnabled.checked ? 'none' : 'block';
   polarControls.style.display = on ? 'block' : 'none';
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+});
+
+// ---- Phyllotaxis toggle → show/hide grid controls ----
+phyllotaxisEnabled.addEventListener('change', () => {
+  const on = phyllotaxisEnabled.checked;
+  if (on && concentricEnabled.checked) {
+    concentricEnabled.checked = false;
+    concentricControls.style.display = 'none';
+  }
+  if (on && polarEnabled.checked) {
+    polarEnabled.checked = false;
+    polarControls.style.display = 'none';
+  }
+  // Phyllotaxis keeps the spacing control visible; only hide concentric/polar controls
+  gridControls.style.display = concentricEnabled.checked || polarEnabled.checked ? 'none' : 'block';
   if (state.boundaryNode && state.boundaryNode.bounds) {
     updateEstimate(state.boundaryNode.bounds);
   }
@@ -650,17 +742,7 @@ concentricRatio.addEventListener('input', () => {
   }
 });
 
-// ---- Polar param changes → update estimate ----
-polarN.addEventListener('input', () => {
-  if (state.boundaryNode && state.boundaryNode.bounds) {
-    updateEstimate(state.boundaryNode.bounds);
-  }
-});
-polarSkip.addEventListener('input', () => {
-  if (state.boundaryNode && state.boundaryNode.bounds) {
-    updateEstimate(state.boundaryNode.bounds);
-  }
-});
+// ---- Polar param changes → update estimate (slider sync handled above) ----
 polarSpiralType.addEventListener('change', () => {
   if (state.boundaryNode && state.boundaryNode.bounds) {
     updateEstimate(state.boundaryNode.bounds);
@@ -672,6 +754,31 @@ sampleBitmap.addEventListener('change', () => {
   if (state.boundaryNode) updateUI();
 });
 
+
+	// ---- Slider value sync ----
+	function syncSlider(slider, display, decimals) {
+		const v = parseFloat(slider.value);
+		display.textContent = v.toFixed(decimals);
+	}
+	syncSlider(concentricPhase, valConcentricPhase, 0);
+	syncSlider(polarSkip, valPolarSkip, 0);
+	syncSlider(polarN, valPolarN, 1);
+	syncSlider(curlIntensity, valCurlIntensity, 0);
+	concentricPhase.addEventListener('input', function() {
+		syncSlider(concentricPhase, valConcentricPhase, 0);
+		if (state.boundaryNode && state.boundaryNode.bounds) updateEstimate(state.boundaryNode.bounds);
+	});
+	polarSkip.addEventListener('input', function() {
+		syncSlider(polarSkip, valPolarSkip, 0);
+		if (state.boundaryNode && state.boundaryNode.bounds) updateEstimate(state.boundaryNode.bounds);
+	});
+	polarN.addEventListener('input', function() {
+		syncSlider(polarN, valPolarN, 1);
+		if (state.boundaryNode && state.boundaryNode.bounds) updateEstimate(state.boundaryNode.bounds);
+	});
+	curlIntensity.addEventListener('input', function() {
+		syncSlider(curlIntensity, valCurlIntensity, 0);
+	});
 // ---- Request initial state ----
 parent.postMessage({ pluginMessage: { type: 'request-selection' } }, '*');
 </script>

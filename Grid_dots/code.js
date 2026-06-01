@@ -456,7 +456,7 @@ function generateConcentricPoints(center, maxRadius, spacingType, spacing, delta
             break;
         // Number of points: maintain consistent arc density ~= spacing
         const circumference = 2 * Math.PI * ringRadius;
-        const n = Math.max(1, Math.floor(circumference / spacing));
+        const n = Math.max(1, Math.round(circumference / spacing));
         // Phase offset accumulates per ring
         const ringPhase = ringIndex * phaseOffsetRad;
         for (let j = 0; j < n; j++) {
@@ -473,8 +473,13 @@ function generateConcentricPoints(center, maxRadius, spacingType, spacing, delta
 // ---- Polar Curve Grid Point Generation ----
 // R = maxRadius (auto-computed from shape geometry).
 // curvature controls total bend at r=R (in units of 2π).
-// skip controls arm density: only every (skip+1)th arm is generated.
+// skip controls arm density: fewer arms at higher skip values.
 // spiralType selects the radial twist profile.
+//
+// Points are sampled at uniform ARC-LENGTH intervals along each spiral arm
+// (not uniform radial intervals). This prevents visual gaps near the boundary
+// where the spiral's angular component stretches the radial step into a much
+// longer arc-length step.
 function computeSpiralTwist(r, R, curvature, type) {
     const u = r / R; // normalized radius [0, 1]
     let f;
@@ -503,20 +508,60 @@ function generatePolarPoints(center, maxRadius, curvature, skip, spiralType, den
         return points;
     // Center point
     points.push({ x: center.x, y: center.y });
-    const numRings = Math.floor(maxRadius / densitySpacing);
     const numArms = Math.max(1, Math.floor((2 * Math.PI * maxRadius) / densitySpacing));
     const step = Math.max(1, Math.floor(skip) + 1);
-    for (let arm = 0; arm < numArms; arm += step) {
-        const baseAngle = (arm * 2 * Math.PI) / numArms;
-        for (let i = 1; i <= numRings; i++) {
-            const r = i * densitySpacing;
-            const twist = computeSpiralTwist(r, maxRadius, curvature, spiralType);
-            const curvedAngle = baseAngle + twist;
-            points.push({
-                x: center.x + r * Math.cos(curvedAngle),
-                y: center.y + r * Math.sin(curvedAngle),
-            });
+    const generatedArms = Math.max(1, Math.ceil(numArms / step));
+    // Oversample radially to integrate arc length accurately.
+    // More oversampling when curvature is high (more arc-length stretch).
+    const maxStretch = Math.max(1, Math.abs(curvature) * 2 * Math.PI);
+    const oversample = Math.max(4, Math.ceil(maxStretch / 2));
+    const fineSteps = Math.max(Math.floor(maxRadius / densitySpacing) * oversample, oversample * 4);
+    for (let a = 0; a < generatedArms; a++) {
+        const baseAngle = (a * 2 * Math.PI) / generatedArms;
+        let accumulatedArc = 0;
+        let prevR = 0;
+        let prevTwist = 0;
+        for (let i = 1; i <= fineSteps; i++) {
+            const ri = (i / fineSteps) * maxRadius;
+            const twist = computeSpiralTwist(ri, maxRadius, curvature, spiralType);
+            const dr = ri - prevR;
+            const dTheta = twist - prevTwist;
+            const rMid = (ri + prevR) / 2;
+            const segmentArc = Math.sqrt(dr * dr + rMid * rMid * dTheta * dTheta);
+            accumulatedArc += segmentArc;
+            if (accumulatedArc >= densitySpacing || i === fineSteps) {
+                const curvedAngle = baseAngle + twist;
+                points.push({
+                    x: center.x + ri * Math.cos(curvedAngle),
+                    y: center.y + ri * Math.sin(curvedAngle),
+                });
+                accumulatedArc = 0;
+            }
+            prevR = ri;
+            prevTwist = twist;
         }
+    }
+    return points;
+}
+// ---- Phyllotaxis (Sunflower) Point Generation ----
+// Based on the golden angle φ = π·(3 − √5) ≈ 137.508°.
+// Seeds are placed at r(n)=k·√n, θ(n)=n·φ for n=0,1,2,...
+// This produces the same spiral packing seen in sunflower heads.
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+function generatePhyllotaxisPoints(center, maxRadius, scale) {
+    const points = [];
+    if (maxRadius <= 0 || scale <= 0)
+        return points;
+    // scale controls average distance between adjacent seeds.
+    // Seeds within radius R: n_max = floor((R / scale)^2)
+    const maxN = Math.floor(Math.pow((maxRadius / scale), 2));
+    for (let n = 0; n <= maxN; n++) {
+        const r = scale * Math.sqrt(n);
+        const theta = n * GOLDEN_ANGLE;
+        points.push({
+            x: center.x + r * Math.cos(theta),
+            y: center.y + r * Math.sin(theta),
+        });
     }
     return points;
 }
@@ -745,6 +790,13 @@ function handleGenerate(params) {
             const maxRadius = Math.sqrt(cx * cx + cy * cy);
             const center = { x: bounds.x + cx, y: bounds.y + cy };
             allPoints = generateConcentricPoints(center, maxRadius, params.concentricSpacingType, params.concentricSpacing, params.concentricDelta, params.concentricRatio, params.concentricPhaseOffset);
+        }
+        else if (params.phyllotaxisEnabled) {
+            const cx = bounds.width / 2;
+            const cy = bounds.height / 2;
+            const maxRadius = Math.sqrt(cx * cx + cy * cy);
+            const center = { x: bounds.x + cx, y: bounds.y + cy };
+            allPoints = generatePhyllotaxisPoints(center, maxRadius, params.gridSpacing);
         }
         else {
             allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
