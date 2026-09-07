@@ -29,4 +29,17 @@ module.exports = tseslint.config(
   {
     ignores: ['code.js', 'dist', 'eslint.config.js'],
   },
+  {
+    files: ['grid.test.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        console: 'readonly',
+        require: 'readonly',
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 )

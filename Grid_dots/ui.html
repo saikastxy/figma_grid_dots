@@ -25,6 +25,7 @@
     color: var(--text);
     background: var(--bg);
     line-height: 1.4;
+    padding-bottom: 68px;
   }
   .section {
     margin-bottom: 12px;
@@ -109,6 +110,123 @@
 		color: var(--text);
 		flex-shrink: 0;
 	}
+  details {
+    margin-top: 6px;
+    border-top: 1px solid var(--border);
+    padding-top: 5px;
+  }
+  summary {
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-weight: 600;
+    user-select: none;
+    margin-bottom: 6px;
+  }
+  .pattern-card {
+    margin: 6px 0;
+    padding: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  #pattern-preview {
+    display: block;
+    width: 100%;
+    height: 92px;
+    border-radius: 4px;
+    background: #fafafa;
+  }
+  #rhythm-preview {
+    display: block;
+    width: 100%;
+    height: 92px;
+    border-radius: 4px;
+    background: #fafafa;
+  }
+  #density-preview {
+    display: block;
+    width: 100%;
+    height: 72px;
+    border-radius: 4px;
+    background: #fafafa;
+  }
+  .pattern-note {
+    min-height: 28px;
+    margin-top: 5px;
+    color: var(--text-secondary);
+    font-size: 10px;
+  }
+  .preset-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .unit-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    margin-bottom: 8px;
+  }
+  button.unit-option {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 5px;
+    height: 30px;
+    padding: 0 6px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 9px;
+    font-weight: 500;
+  }
+  button.unit-option svg {
+    width: 20px;
+    height: 14px;
+    overflow: visible;
+    fill: currentColor;
+    flex: none;
+  }
+  button.unit-option.selected {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: #edf8ff;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .flow-preview-card {
+    margin: 6px 0;
+    padding: 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+  }
+  #flow-preview {
+    display: block;
+    width: 100%;
+    height: 108px;
+    background: #fafafa;
+    border-radius: 4px;
+  }
+  .flow-hint {
+    min-height: 26px;
+    margin-top: 5px;
+    color: var(--text-secondary);
+    font-size: 10px;
+  }
+  button.preset {
+    height: 24px;
+    padding: 0 6px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-weight: 500;
+  }
+  button.preset:hover {
+    border-color: var(--accent);
+    background: #f1f9ff;
+  }
   .row {
     display: flex;
     gap: 8px;
@@ -129,7 +247,14 @@
   .actions {
     display: flex;
     gap: 8px;
-    margin-top: 4px;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    padding: 10px 12px;
+    background: linear-gradient(to bottom, rgba(255,255,255,0.8), #fff 35%);
+    border-top: 1px solid var(--border);
   }
   button {
     flex: 1;
@@ -193,10 +318,6 @@
     <label><span>Max</span><input id="max-diameter" type="number" value="20" min="0.5" step="0.5"></label>
     <label><span>Min</span><input id="min-diameter" type="number" value="2" min="0.5" step="0.5"></label>
   </div>
-  <label class="toggle-label" id="bitmap-toggle-row" style="display:none;margin-top:4px">
-    <span>Sample from bitmap</span>
-    <input id="sample-bitmap" type="checkbox">
-  </label>
 </div>
 
 <div class="section" id="color-section" style="display:none">
@@ -205,6 +326,41 @@
     <span>Sample color</span>
     <input id="sample-color" type="checkbox">
   </label>
+</div>
+
+<div class="section">
+  <div class="section-title">Grayscale Mapping</div>
+  <label><span>Mode</span>
+    <select id="grayscale-mode">
+      <option value="off">Disabled</option>
+      <option value="radius">Radius only</option>
+      <option value="density">Density only</option>
+      <option value="both">Radius + Density</option>
+    </select>
+  </label>
+  <div id="grayscale-note" class="pattern-note">Three active modes: radius, density, or both.</div>
+  <div id="density-controls" style="display:none">
+    <label><span>Density Method</span>
+      <select id="density-method">
+        <option value="spacing">Regular Spacing</option>
+        <option value="random">Random Thinning</option>
+      </select>
+    </label>
+    <label id="density-spacing-row"><span>Light-area Spacing</span>
+      <select id="density-max-spacing">
+        <option value="2">2×</option>
+        <option value="4" selected>4×</option>
+        <option value="8">8×</option>
+        <option value="16">16×</option>
+      </select>
+    </label>
+    <label id="density-min-row" style="display:none"><span>Light-area Density</span><input id="density-min" type="range" value="5" min="0" max="100" step="1"><span class="slider-value" id="val-density-min">5%</span></label>
+    <label><span>Density Curve</span><input id="density-curve" type="range" value="100" min="25" max="400" step="5"><span class="slider-value" id="val-density-curve">1.00</span></label>
+    <div class="pattern-card">
+      <canvas id="density-preview"></canvas>
+      <div id="density-note" class="pattern-note">Dark pixels use the base grid; lighter pixels move onto nested 2× / 4× / 8× sublattices.</div>
+    </div>
+  </div>
 </div>
 
 <div class="section">
@@ -224,14 +380,35 @@
   <div id="grid-controls">
   <label><span>Pattern</span>
     <select id="tile-mode">
-      <option value="quad">Quad Grid</option>
-      <option value="hex">Hex Grid</option>
-      <option value="brick">Brick Grid</option>
-      <option value="diamond">Diamond Grid</option>
-      <option value="random">Random</option>
+      <option value="quad">Square Lattice</option>
+      <option value="hex">Hex Close-pack</option>
+      <option value="brick">Brick / Half-drop</option>
+      <option value="diamond">Dense Diamond</option>
+      <option value="poisson">Poisson Blue Noise</option>
+      <option value="random">Uniform Random</option>
     </select>
   </label>
   <label><span>Spacing</span><input id="grid-spacing" type="number" value="20" min="2" step="1"></label>
+  <div class="pattern-card">
+    <canvas id="pattern-preview"></canvas>
+    <div id="pattern-note" class="pattern-note"></div>
+  </div>
+  <div class="preset-grid">
+    <button class="preset" type="button" data-preset="tight-hex">Tight hex</button>
+    <button class="preset" type="button" data-preset="diagonal-flow">Diagonal flow</button>
+    <button class="preset" type="button" data-preset="dense-diamond">Dense diamond</button>
+    <button class="preset" type="button" data-preset="blue-noise">Blue noise</button>
+  </div>
+  <details id="lattice-advanced" open>
+    <summary>Direction &amp; variation</summary>
+    <div id="directional-controls">
+      <label><span>Direction</span><input id="grid-angle" type="range" value="0" min="-180" max="180" step="1"><span class="slider-value" id="val-grid-angle">0°</span></label>
+      <label><span>Row drift</span><input id="row-offset" type="range" value="0" min="-100" max="100" step="1"><span class="slider-value" id="val-row-offset">0%</span></label>
+      <label><span>Row spacing</span><input id="row-spacing-ratio" type="range" value="100" min="40" max="200" step="1"><span class="slider-value" id="val-row-spacing-ratio">100%</span></label>
+      <label><span>Jitter</span><input id="jitter-amount" type="range" value="0" min="0" max="100" step="1"><span class="slider-value" id="val-jitter-amount">0%</span></label>
+    </div>
+    <label><span>Seed</span><input id="random-seed" type="number" value="7" min="1" max="999999" step="1"></label>
+  </details>
   </div>
   <div id="concentric-controls" style="display:none">
     <label><span>Ring Spacing</span>
@@ -259,36 +436,80 @@
     </label>
     <div style="text-align:center;font-size:10px;color:#888">R = distance to farthest boundary point</div>
   </div>
-  <label><span>Rotation</span>
-    <select id="rotation-mode">
-      <option value="none">None</option>
-      <option value="random">Random</option>
-      <option value="radial">Radial</option>
-      <option value="vortex">Vortex</option>
-      <option value="wave-h">Wave H</option>
-      <option value="wave-v">Wave V</option>
-      <option value="noise">Noise Field</option>
-      <option disabled>---</option>
-      <option value="archimedean">Archimedean Spiral</option>
-      <option value="logarithmic">Logarithmic Spiral</option>
-      <option value="fermat">Fermat Spiral</option>
-      <option value="euler">Euler Spiral</option>
-    </select>
-  </label>
-  <label class="toggle-label" style="margin-top:4px">
-    <span>Apply Curl</span>
-    <input id="curl-enabled" type="checkbox">
-  </label>
-  <label id="curl-slider-row" style="display:none">
-    <span>Curl Intensity</span>
-    <input id="curl-intensity" type="range" value="0" min="0" max="100" step="1"><span class="slider-value" id="val-curl-intensity">0</span>
-  </label>
   <div id="estimate" class="estimate"></div>
 </div>
 
 <div class="section">
-  <div class="section-title">Dot Source Shape</div>
-  <div id="source-info" class="info-box empty">Using default circle</div>
+  <div class="section-title">Flow Orientation</div>
+  <label><span>Vector Field</span>
+    <select id="rotation-mode">
+      <option value="none">No Field</option>
+      <option value="uniform">Uniform Direction</option>
+      <option value="radial-out">Radial Outflow</option>
+      <option value="radial-in">Radial Inflow</option>
+      <option value="orbit-ccw">Orbit CCW</option>
+      <option value="orbit-cw">Orbit CW</option>
+      <option value="spiral-out" selected>Spiral Out</option>
+      <option value="spiral-in">Spiral In</option>
+      <option value="wave">Sine Flow</option>
+      <option value="cross-wave">Cross Wave</option>
+      <option value="curl-noise">Curl Noise</option>
+      <option value="saddle">Saddle Field</option>
+    </select>
+  </label>
+  <div class="flow-preview-card">
+    <canvas id="flow-preview"></canvas>
+    <div id="flow-hint" class="flow-hint"></div>
+  </div>
+  <label><span>Base Angle</span><input id="flow-angle" type="range" value="0" min="-180" max="180" step="1"><span class="slider-value" id="val-flow-angle">0°</span></label>
+  <label><span>Bend / Spin</span><input id="flow-strength" type="range" value="45" min="-100" max="100" step="1"><span class="slider-value" id="val-flow-strength">45</span></label>
+  <label><span>Field Scale</span><input id="flow-scale" type="range" value="6" min="1" max="24" step="1"><span class="slider-value" id="val-flow-scale">6</span></label>
+  <label><span>Unit Axis Offset</span><input id="orientation-offset" type="range" value="0" min="-180" max="180" step="1"><span class="slider-value" id="val-orientation-offset">0°</span></label>
+</div>
+
+<div class="section">
+  <div class="section-title">Rhythm Tiling</div>
+  <label class="toggle-label" style="margin-bottom:6px">
+    <span>Enable orientation rhythm</span>
+    <input id="rhythm-enabled" type="checkbox">
+  </label>
+  <div id="rhythm-controls" style="display:none">
+    <label><span>Pattern</span>
+      <select id="rhythm-mode">
+        <option value="triangle-tessellation">Triangle Faces · Up / Down</option>
+        <option value="alternate">Up / Down Alternating</option>
+        <option value="row-alternate">Row Alternating</option>
+        <option value="column-alternate">Column Alternating</option>
+        <option value="syncopated">Syncopated 2 + 1</option>
+      </select>
+    </label>
+    <label><span>Flip Angle</span><input id="rhythm-flip-angle" type="range" value="180" min="-180" max="180" step="1"><span class="slider-value" id="val-rhythm-flip-angle">180°</span></label>
+    <label><span>Phase</span><input id="rhythm-phase" type="range" value="0" min="0" max="1" step="1"><span class="slider-value" id="val-rhythm-phase">A</span></label>
+    <div class="pattern-card">
+      <canvas id="rhythm-preview"></canvas>
+      <div id="rhythm-note" class="pattern-note">True triangular face centers; each cell contributes one up and one down face.</div>
+    </div>
+    <div class="preset-grid">
+      <button class="preset" type="button" data-rhythm-preset="triangle-weave">Triangle weave</button>
+      <button class="preset" type="button" data-rhythm-preset="row-cadence">Row cadence</button>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="section-title">Basic Unit</div>
+  <div class="unit-grid" id="unit-grid">
+    <button class="unit-option" type="button" data-unit="selected" title="Use the second selected Figma shape"><svg viewBox="0 0 24 16"><path d="M3 2h7v4H3zm10 0h8v4h-8zM3 9h5v5H3zm8 0h10v5H11z"/></svg><span>Selected</span></button>
+    <button class="unit-option selected" type="button" data-unit="circle"><svg viewBox="0 0 24 16"><circle cx="12" cy="8" r="6"/></svg><span>Circle</span></button>
+    <button class="unit-option" type="button" data-unit="ellipse"><svg viewBox="0 0 24 16"><ellipse cx="12" cy="8" rx="10" ry="4"/></svg><span>Ellipse</span></button>
+    <button class="unit-option" type="button" data-unit="diamond"><svg viewBox="0 0 24 16"><path d="M12 2 22 8 12 14 2 8Z"/></svg><span>Diamond</span></button>
+    <button class="unit-option" type="button" data-unit="triangle"><svg viewBox="0 0 24 16"><path d="M22 8 3 15 3 1Z"/></svg><span>Triangle</span></button>
+    <button class="unit-option" type="button" data-unit="arrow"><svg viewBox="0 0 24 16"><path d="M2 6h12V2l8 6-8 6v-4H2Z"/></svg><span>Arrow</span></button>
+    <button class="unit-option" type="button" data-unit="capsule"><svg viewBox="0 0 24 16"><rect x="2" y="5" width="20" height="6" rx="3"/></svg><span>Capsule</span></button>
+    <button class="unit-option" type="button" data-unit="leaf"><svg viewBox="0 0 24 16"><path d="M1 8C6 0 17 0 23 8 17 16 6 16 1 8Z"/></svg><span>Leaf</span></button>
+    <button class="unit-option" type="button" data-unit="chevron"><svg viewBox="0 0 24 16"><path d="m2 1 9 7-9 7h7l13-7L9 1Z"/></svg><span>Chevron</span></button>
+  </div>
+  <div id="source-info" class="info-box empty">Circle preset active · select a second shape for a custom unit</div>
 </div>
 
 <div class="actions">
@@ -301,6 +522,7 @@
 let state = {
   boundaryNode: null,
   dotSourceNode: null,
+  unitPreset: 'circle',
 };
 
 // ---- DOM refs ----
@@ -313,17 +535,43 @@ const maxDiameter = document.getElementById('max-diameter');
 const minDiameter = document.getElementById('min-diameter');
 const tileMode = document.getElementById('tile-mode');
 const gridSpacing = document.getElementById('grid-spacing');
+const gridAngle = document.getElementById('grid-angle');
+const rowOffset = document.getElementById('row-offset');
+const rowSpacingRatio = document.getElementById('row-spacing-ratio');
+const jitterAmount = document.getElementById('jitter-amount');
+const randomSeed = document.getElementById('random-seed');
+const directionalControls = document.getElementById('directional-controls');
+const patternPreview = document.getElementById('pattern-preview');
+const patternNote = document.getElementById('pattern-note');
 const estimateEl = document.getElementById('estimate');
 const generateBtn = document.getElementById('generate');
 const cancelBtn = document.getElementById('cancel');
 const colorSection = document.getElementById('color-section');
 const sampleColor = document.getElementById('sample-color');
-const sampleBitmap = document.getElementById('sample-bitmap');
-const bitmapToggleRow = document.getElementById('bitmap-toggle-row');
+const grayscaleMode = document.getElementById('grayscale-mode');
+const grayscaleNote = document.getElementById('grayscale-note');
+const densityControls = document.getElementById('density-controls');
+const densityMethod = document.getElementById('density-method');
+const densitySpacingRow = document.getElementById('density-spacing-row');
+const densityMaxSpacing = document.getElementById('density-max-spacing');
+const densityMinRow = document.getElementById('density-min-row');
+const densityMin = document.getElementById('density-min');
+const densityCurve = document.getElementById('density-curve');
+const densityPreview = document.getElementById('density-preview');
+const densityNote = document.getElementById('density-note');
 const rotationMode = document.getElementById('rotation-mode');
-const curlEnabled = document.getElementById('curl-enabled');
-const curlIntensity = document.getElementById('curl-intensity');
-const curlSliderRow = document.getElementById('curl-slider-row');
+const flowAngle = document.getElementById('flow-angle');
+const flowStrength = document.getElementById('flow-strength');
+const flowScale = document.getElementById('flow-scale');
+const orientationOffset = document.getElementById('orientation-offset');
+const flowPreview = document.getElementById('flow-preview');
+const flowHint = document.getElementById('flow-hint');
+const rhythmEnabled = document.getElementById('rhythm-enabled');
+const rhythmControls = document.getElementById('rhythm-controls');
+const rhythmMode = document.getElementById('rhythm-mode');
+const rhythmFlipAngle = document.getElementById('rhythm-flip-angle');
+const rhythmPhase = document.getElementById('rhythm-phase');
+const rhythmPreview = document.getElementById('rhythm-preview');
 const concentricEnabled = document.getElementById('concentric-enabled');
 const gridControls = document.getElementById('grid-controls');
 const concentricControls = document.getElementById('concentric-controls');
@@ -346,7 +594,18 @@ const polarSpiralType = document.getElementById('polar-spiral-type');
 	const valConcentricPhase = document.getElementById('val-concentric-phase');
 	const valPolarSkip = document.getElementById('val-polar-skip');
 	const valPolarN = document.getElementById('val-polar-n');
-	const valCurlIntensity = document.getElementById('val-curl-intensity');
+	const valFlowAngle = document.getElementById('val-flow-angle');
+	const valFlowStrength = document.getElementById('val-flow-strength');
+	const valFlowScale = document.getElementById('val-flow-scale');
+	const valOrientationOffset = document.getElementById('val-orientation-offset');
+	const valRhythmFlipAngle = document.getElementById('val-rhythm-flip-angle');
+	const valRhythmPhase = document.getElementById('val-rhythm-phase');
+	const valGridAngle = document.getElementById('val-grid-angle');
+	const valRowOffset = document.getElementById('val-row-offset');
+	const valRowSpacingRatio = document.getElementById('val-row-spacing-ratio');
+	const valJitterAmount = document.getElementById('val-jitter-amount');
+	const valDensityMin = document.getElementById('val-density-min');
+	const valDensityCurve = document.getElementById('val-density-curve');
 // ---- Message from plugin ----
 window.addEventListener('message', (event) => {
   const msg = event.data.pluginMessage;
@@ -354,6 +613,9 @@ window.addEventListener('message', (event) => {
 
   if (msg.type === 'selection-change') {
     state.boundaryNode = msg.boundaryNode;
+    if (msg.dotSourceNode && (!state.dotSourceNode || state.dotSourceNode.id !== msg.dotSourceNode.id)) {
+      state.unitPreset = 'selected';
+    }
     state.dotSourceNode = msg.dotSourceNode;
     updateUI();
   } else if (msg.type === 'sample-bitmap') {
@@ -397,7 +659,9 @@ async function handleSampleBitmap(msg) {
       const g = pixel[1] / 255;
       const b = pixel[2] / 255;
       const a = pixel[3] / 255;
-      const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) * a;
+      // Composite transparency over white so empty/soft-edge pixels do not
+      // become artificially dark and therefore overly dense.
+      const l = (0.2126 * r + 0.7152 * g + 0.0722 * b) * a + (1 - a);
       lightness.push(l);
       if (colors) {
         colors.push({ r, g, b, a });
@@ -428,20 +692,18 @@ function updateUI() {
     boundaryInfo.innerHTML = `<strong>${escapeHtml(b.name)}</strong> <small>(${b.nodeType})</small>${badge}`;
     boundaryInfo.classList.remove('empty');
     generateBtn.disabled = false;
-    bitmapToggleRow.style.display = 'block';
 
     // Show/hide diameter controls
-    const isBitmap = sampleBitmap.checked;
-    const isGradient = b.fillType && b.fillType.startsWith('GRADIENT');
-    if (isGradient || isBitmap) {
+    const radiusMapped = grayscaleMode.value === 'radius' || grayscaleMode.value === 'both';
+    const grayscaleActive = grayscaleMode.value !== 'off';
+    if (radiusMapped) {
       solidDiameter.style.display = 'none';
       gradientDiameter.style.display = 'block';
-      colorSection.style.display = 'block';
     } else {
       solidDiameter.style.display = 'block';
       gradientDiameter.style.display = 'none';
-      if (!isBitmap) colorSection.style.display = 'none';
     }
+    colorSection.style.display = grayscaleActive ? 'block' : 'none';
 
     // Estimate
     updateEstimate(b.bounds);
@@ -449,20 +711,27 @@ function updateUI() {
     boundaryInfo.textContent = 'Select a shape in Figma';
     boundaryInfo.classList.add('empty');
     generateBtn.disabled = true;
-    bitmapToggleRow.style.display = 'none';
     solidDiameter.style.display = 'block';
     gradientDiameter.style.display = 'none';
     colorSection.style.display = 'none';
     estimateEl.textContent = '';
   }
 
-  // Source info
-  if (state.dotSourceNode) {
+  // Unit preset and selected custom source
+  updateUnitButtons();
+  if (state.dotSourceNode && state.unitPreset === 'selected') {
     const s = state.dotSourceNode;
-    sourceInfo.innerHTML = `<strong>${escapeHtml(s.name)}</strong> <small>(${s.nodeType})</small>`;
+    sourceInfo.innerHTML = `Using selected: <strong>${escapeHtml(s.name)}</strong> <small>(${s.nodeType})</small>`;
     sourceInfo.classList.remove('empty');
+  } else if (state.dotSourceNode) {
+    const s = state.dotSourceNode;
+    sourceInfo.innerHTML = `Custom available: <strong>${escapeHtml(s.name)}</strong> <small>(${s.nodeType})</small> · preset active`;
+    sourceInfo.classList.remove('empty');
+  } else if (state.unitPreset === 'selected') {
+    sourceInfo.textContent = 'Select a second Figma shape; generation will fall back to Circle for now';
+    sourceInfo.classList.add('empty');
   } else {
-    sourceInfo.textContent = 'Using default circle (select a 2nd shape to use as dot)';
+    sourceInfo.textContent = 'Preset active · select a second shape to make a custom unit available';
     sourceInfo.classList.add('empty');
   }
 }
@@ -484,20 +753,26 @@ function updateEstimate(bounds) {
   } else {
     const spacing = parseFloat(gridSpacing.value) || 20;
     const mode = tileMode.value;
-    let cols, rows;
-    if (mode === 'hex') {
-      const vSpacing = spacing * (Math.sqrt(3) / 2);
-      cols = Math.ceil(bounds.width / spacing) + 1;
-      rows = Math.ceil(bounds.height / vSpacing) + 1;
+    const area = bounds.width * bounds.height;
+    const ratio = (parseFloat(rowSpacingRatio.value) || 100) / 100;
+    const usesTriangleFaces = rhythmEnabled.checked &&
+      rhythmMode.value === 'triangle-tessellation' &&
+      !polarEnabled.checked && !concentricEnabled.checked && !phyllotaxisEnabled.checked;
+    if (usesTriangleFaces) {
+      total = Math.ceil(2 * area / (spacing * spacing * (Math.sqrt(3) / 2) * ratio));
+    } else if (mode === 'poisson') {
+      total = Math.ceil(0.7 * area / (spacing * spacing));
+    } else if (mode === 'random') {
+      total = Math.ceil(area / (spacing * spacing));
     } else {
-      cols = Math.ceil(bounds.width / spacing) + 1;
-      rows = Math.ceil(bounds.height / spacing) + 1;
+      let rowHeight = 1;
+      if (mode === 'hex') rowHeight = Math.sqrt(3) / 2;
+      if (mode === 'diamond') rowHeight = 0.5;
+      total = Math.ceil(area / (spacing * spacing * rowHeight * ratio));
     }
-    total = cols * rows;
-    if (mode === 'diamond') total *= 2;
   }
 
-  estimateEl.textContent = '~' + total + ' dots (upper bound)';
+  estimateEl.textContent = '≈ ' + total + ' candidates before clipping';
   estimateEl.className = 'estimate' + (total > 5000 ? ' high' : '');
 }
 
@@ -599,16 +874,632 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function previewRandom(seed) {
+  let state = (Math.floor(seed) >>> 0) || 0x6d2b79f5;
+  return function() {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function previewDensityHash(x, y, seed) {
+  let value = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(seed + 7919, 1442695041);
+  value = Math.imul(value ^ (value >>> 13), 1274126177);
+  return ((value ^ (value >>> 16)) >>> 0) / 4294967295;
+}
+
+function densityKeepProbability(lightness) {
+  const minimum = Math.max(0, Math.min(100, parseFloat(densityMin.value) || 0)) / 100;
+  const response = Math.max(0.25, Math.min(4, (parseFloat(densityCurve.value) || 100) / 100));
+  const darkness = 1 - Math.max(0, Math.min(1, lightness));
+  return minimum + (1 - minimum) * Math.pow(darkness, response);
+}
+
+function densitySpacingMultiplier(lightness) {
+  const maximum = Math.max(1, Math.min(16, parseFloat(densityMaxSpacing.value) || 4));
+  const maxLevel = Math.max(0, Math.round(Math.log(maximum) / Math.log(2)));
+  const response = Math.max(0.25, Math.min(4, (parseFloat(densityCurve.value) || 100) / 100));
+  const value = Math.max(0, Math.min(1, lightness));
+  const spacingResponse = 1 - Math.pow(1 - value, response);
+  const level = Math.round(spacingResponse * maxLevel);
+  return Math.pow(2, level);
+}
+
+function renderDensityPreview() {
+  const width = densityPreview.clientWidth || 280;
+  const height = 72;
+  const pixelRatio = window.devicePixelRatio || 1;
+  densityPreview.width = Math.floor(width * pixelRatio);
+  densityPreview.height = Math.floor(height * pixelRatio);
+  const ctx = densityPreview.getContext('2d');
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const gradient = ctx.createLinearGradient(0, 0, width, 0);
+  gradient.addColorStop(0, '#111');
+  gradient.addColorStop(1, '#f5f5f5');
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, width, height);
+
+  const columns = 24;
+  const rows = 6;
+  const seed = parseInt(randomSeed.value) || 1;
+  ctx.fillStyle = '#18a0fb';
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < columns; col++) {
+      const lightness = col / (columns - 1);
+      if (densityMethod.value === 'random') {
+        if (previewDensityHash(col, row, seed) >= densityKeepProbability(lightness)) continue;
+      } else {
+        const stride = densitySpacingMultiplier(lightness);
+        const phaseI = ((seed % stride) + stride) % stride;
+        const phaseJ = (((seed * 3 + 1) % stride) + stride) % stride;
+        if (((col - phaseI) % stride + stride) % stride !== 0) continue;
+        if (((row - phaseJ) % stride + stride) % stride !== 0) continue;
+      }
+      const x = 7 + col * ((width - 14) / (columns - 1));
+      const y = 8 + row * ((height - 16) / (rows - 1));
+      ctx.beginPath();
+      ctx.arc(x, y, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function updateDensityUI() {
+  const mode = grayscaleMode.value;
+  const densityActive = mode === 'density' || mode === 'both';
+  const regular = densityMethod.value === 'spacing';
+  densityControls.style.display = densityActive ? 'block' : 'none';
+  densitySpacingRow.style.display = regular ? 'flex' : 'none';
+  densityMinRow.style.display = regular ? 'none' : 'flex';
+  valDensityMin.textContent = (parseFloat(densityMin.value) || 0).toFixed(0) + '%';
+  valDensityCurve.textContent = ((parseFloat(densityCurve.value) || 100) / 100).toFixed(2);
+  densityNote.textContent = regular
+    ? 'Dark pixels use the base grid; lighter pixels move onto nested 2× / 4× / 8× sublattices.'
+    : 'Optional legacy method: candidates are removed with a stable seeded probability.';
+  const mappingNotes = {
+    off: 'Grayscale mapping is disabled.',
+    radius: 'State 1/3 · grayscale controls radius only.',
+    density: 'State 2/3 · grayscale controls density only.',
+    both: 'State 3/3 · grayscale controls radius and density together.',
+  };
+  grayscaleNote.textContent = mappingNotes[mode];
+  renderDensityPreview();
+}
+
+function renderPatternPreview() {
+  const cssWidth = patternPreview.clientWidth || 280;
+  const cssHeight = 92;
+  const pixelRatio = window.devicePixelRatio || 1;
+  patternPreview.width = Math.floor(cssWidth * pixelRatio);
+  patternPreview.height = Math.floor(cssHeight * pixelRatio);
+  const ctx = patternPreview.getContext('2d');
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const mode = tileMode.value;
+  const seed = parseInt(randomSeed.value) || 1;
+  const random = previewRandom(seed);
+  const points = [];
+  const margin = 5;
+
+  if (mode === 'random') {
+    for (let i = 0; i < 100; i++) {
+      points.push({
+        x: margin + random() * (cssWidth - margin * 2),
+        y: margin + random() * (cssHeight - margin * 2),
+      });
+    }
+  } else if (mode === 'poisson') {
+    const minDistance = 10;
+    let failed = 0;
+    while (failed < 1500 && points.length < 120) {
+      const candidate = {
+        x: margin + random() * (cssWidth - margin * 2),
+        y: margin + random() * (cssHeight - margin * 2),
+      };
+      let clear = true;
+      for (const point of points) {
+        const dx = candidate.x - point.x;
+        const dy = candidate.y - point.y;
+        if (dx * dx + dy * dy < minDistance * minDistance) {
+          clear = false;
+          break;
+        }
+      }
+      if (clear) points.push(candidate);
+      else failed++;
+    }
+  } else {
+    const spacing = 17;
+    let presetShift = 0;
+    let presetHeight = 1;
+    if (mode === 'hex') {
+      presetShift = 0.5;
+      presetHeight = Math.sqrt(3) / 2;
+    } else if (mode === 'brick') {
+      presetShift = 0.5;
+    } else if (mode === 'diamond') {
+      presetShift = 0.5;
+      presetHeight = 0.5;
+    }
+
+    const angle = (parseFloat(gridAngle.value) || 0) * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const shift = presetShift + (parseFloat(rowOffset.value) || 0) / 100;
+    const height = presetHeight * ((parseFloat(rowSpacingRatio.value) || 100) / 100);
+    const ax = cos * spacing;
+    const ay = sin * spacing;
+    const bx = (cos * shift - sin * height) * spacing;
+    const by = (sin * shift + cos * height) * spacing;
+    const jitter = Math.min(spacing, height * spacing) * 0.45 * ((parseFloat(jitterAmount.value) || 0) / 100);
+    const centerX = cssWidth / 2;
+    const centerY = cssHeight / 2;
+
+    for (let row = -18; row <= 18; row++) {
+      for (let col = -24; col <= 24; col++) {
+        let x = centerX + col * ax + row * bx;
+        let y = centerY + col * ay + row * by;
+        if (jitter > 0) {
+          x += (random() * 2 - 1) * jitter;
+          y += (random() * 2 - 1) * jitter;
+        }
+        if (x >= margin && x <= cssWidth - margin && y >= margin && y <= cssHeight - margin) {
+          points.push({ x, y });
+        }
+      }
+    }
+  }
+
+  ctx.fillStyle = '#18a0fb';
+  for (const point of points) {
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, 1.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+function rhythmFlipForCell(col, row) {
+  const phase = Math.round(parseFloat(rhythmPhase.value) || 0);
+  const mode = rhythmMode.value;
+  if (mode === 'row-alternate') return ((row + phase) % 2 + 2) % 2 === 1;
+  if (mode === 'column-alternate') return ((col + phase) % 2 + 2) % 2 === 1;
+  if (mode === 'syncopated') return ((col + row + phase) % 3 + 3) % 3 !== 0;
+  return ((col + row + phase) % 2 + 2) % 2 === 1;
+}
+
+function renderRhythmPreview() {
+  const cssWidth = rhythmPreview.clientWidth || 280;
+  const cssHeight = 92;
+  const pixelRatio = window.devicePixelRatio || 1;
+  rhythmPreview.width = Math.floor(cssWidth * pixelRatio);
+  rhythmPreview.height = Math.floor(cssHeight * pixelRatio);
+  const ctx = rhythmPreview.getContext('2d');
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
+
+  const spacing = 23;
+  const triangleHeight = spacing * Math.sqrt(3) / 2;
+  const centerX = cssWidth / 2;
+  const centerY = cssHeight / 2;
+  ctx.fillStyle = '#222';
+
+  const drawTriangle = (x, y, flipped) => {
+    ctx.beginPath();
+    if (!flipped) {
+      ctx.moveTo(x, y - triangleHeight / 2);
+      ctx.lineTo(x - spacing / 2, y + triangleHeight / 2);
+      ctx.lineTo(x + spacing / 2, y + triangleHeight / 2);
+    } else {
+      ctx.moveTo(x, y + triangleHeight / 2);
+      ctx.lineTo(x - spacing / 2, y - triangleHeight / 2);
+      ctx.lineTo(x + spacing / 2, y - triangleHeight / 2);
+    }
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  if (rhythmMode.value === 'triangle-tessellation') {
+    for (let row = -3; row <= 3; row++) {
+      for (let col = -8; col <= 8; col++) {
+        const baseX = centerX + (col + row * 0.5) * spacing;
+        const baseY = centerY + row * triangleHeight;
+        const faceAX = baseX + (1 / 2) * spacing;
+        const faceAY = baseY + triangleHeight / 3;
+        const faceBX = baseX + spacing;
+        const faceBY = baseY + (2 / 3) * triangleHeight;
+        if (faceAX >= -spacing && faceAX <= cssWidth + spacing && faceAY >= -triangleHeight && faceAY <= cssHeight + triangleHeight) {
+          drawTriangle(faceAX, faceAY, true);
+        }
+        if (faceBX >= -spacing && faceBX <= cssWidth + spacing && faceBY >= -triangleHeight && faceBY <= cssHeight + triangleHeight) {
+          drawTriangle(faceBX, faceBY, false);
+        }
+      }
+    }
+    return;
+  }
+
+  for (let row = -3; row <= 3; row++) {
+    for (let col = -8; col <= 8; col++) {
+      const x = centerX + (col + (row % 2) * 0.5) * spacing;
+      const y = centerY + row * triangleHeight;
+      if (x < -spacing || x > cssWidth + spacing || y < -triangleHeight || y > cssHeight + triangleHeight) continue;
+      drawTriangle(x, y, rhythmFlipForCell(col, row));
+    }
+  }
+}
+
+const patternNotes = {
+  quad: 'Balanced baseline. Rotate it or add row drift for an oblique lattice.',
+  hex: 'Densest equal-circle lattice: about 15.5% more centers than square at the same spacing.',
+  brick: 'Half-drop rows create a strong directional rhythm without compressing row height.',
+  diamond: 'Two interleaved rows: 2× square-grid density; nearest centers are about 0.707× spacing.',
+  poisson: 'Blue-noise packing keeps a minimum distance while avoiding visible rows and clumps.',
+  random: 'Uniform scatter is fast, but it can create overlaps and empty clusters.',
+};
+
+const rhythmNotes = {
+  'triangle-tessellation': 'True triangular face centers; each cell contributes one up and one down face.',
+  alternate: 'Alternates orientation on both lattice axes; phase A/B swaps the whole checker.',
+  'row-alternate': 'Alternates orientation row by row, useful for horizontal cadence.',
+  'column-alternate': 'Alternates orientation column by column, useful for vertical cadence.',
+  syncopated: 'A repeating 2 + 1 orientation phrase across the lattice.',
+};
+
+function syncLatticeDisplays() {
+  valGridAngle.textContent = (parseFloat(gridAngle.value) || 0).toFixed(0) + '°';
+  valRowOffset.textContent = (parseFloat(rowOffset.value) || 0).toFixed(0) + '%';
+  valRowSpacingRatio.textContent = (parseFloat(rowSpacingRatio.value) || 100).toFixed(0) + '%';
+  valJitterAmount.textContent = (parseFloat(jitterAmount.value) || 0).toFixed(0) + '%';
+}
+
+let previewFrame = null;
+function schedulePatternRefresh() {
+  syncLatticeDisplays();
+  if (previewFrame !== null) cancelAnimationFrame(previewFrame);
+  previewFrame = requestAnimationFrame(() => {
+    previewFrame = null;
+    renderPatternPreview();
+  });
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+}
+
+function updateRhythmUI() {
+  const enabled = rhythmEnabled.checked;
+  rhythmControls.style.display = enabled ? 'block' : 'none';
+  valRhythmFlipAngle.textContent = (parseFloat(rhythmFlipAngle.value) || 0).toFixed(0) + '°';
+  valRhythmPhase.textContent = Math.round(parseFloat(rhythmPhase.value) || 0) === 0 ? 'A' : 'B';
+  document.getElementById('rhythm-note').textContent = rhythmNotes[rhythmMode.value];
+  renderRhythmPreview();
+  if (state.boundaryNode && state.boundaryNode.bounds) {
+    updateEstimate(state.boundaryNode.bounds);
+  }
+}
+
+function updatePatternMode() {
+  const isOrganic = tileMode.value === 'poisson' || tileMode.value === 'random';
+  directionalControls.style.opacity = isOrganic ? '0.42' : '1';
+  directionalControls.querySelectorAll('input').forEach((input) => {
+    input.disabled = isOrganic;
+  });
+  patternNote.textContent = patternNotes[tileMode.value];
+  schedulePatternRefresh();
+}
+
+document.querySelectorAll('button[data-preset]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const preset = button.dataset.preset;
+    if (preset === 'tight-hex') {
+      tileMode.value = 'hex';
+      gridAngle.value = '0';
+      rowOffset.value = '0';
+      rowSpacingRatio.value = '100';
+      jitterAmount.value = '0';
+    } else if (preset === 'diagonal-flow') {
+      tileMode.value = 'brick';
+      gridAngle.value = '35';
+      rowOffset.value = '25';
+      rowSpacingRatio.value = '85';
+      jitterAmount.value = '0';
+    } else if (preset === 'dense-diamond') {
+      tileMode.value = 'diamond';
+      gridAngle.value = '45';
+      rowOffset.value = '0';
+      rowSpacingRatio.value = '100';
+      jitterAmount.value = '0';
+    } else if (preset === 'blue-noise') {
+      tileMode.value = 'poisson';
+    }
+    updatePatternMode();
+  });
+});
+
+function updateUnitButtons() {
+  document.querySelectorAll('button[data-unit]').forEach((button) => {
+    button.classList.toggle('selected', button.dataset.unit === state.unitPreset);
+  });
+}
+
+document.querySelectorAll('button[data-unit]').forEach((button) => {
+  button.addEventListener('click', () => {
+    state.unitPreset = button.dataset.unit;
+    updateUI();
+    scheduleFlowRefresh();
+  });
+});
+
+function rotatePreviewVector(vector, angle) {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: vector.x * cos - vector.y * sin,
+    y: vector.x * sin + vector.y * cos,
+  };
+}
+
+function normalizePreviewVector(vector, fallback) {
+  const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+  if (length < 0.000001) return fallback;
+  return { x: vector.x / length, y: vector.y / length };
+}
+
+function previewNoiseHash(x, y, seed) {
+  let value = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(seed, 1442695041);
+  value = Math.imul(value ^ (value >>> 13), 1274126177);
+  return ((value ^ (value >>> 16)) >>> 0) / 4294967295;
+}
+
+function previewNoiseFade(value) {
+  return value * value * value * (value * (value * 6 - 15) + 10);
+}
+
+function previewValueNoise(x, y, seed) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const tx = previewNoiseFade(x - x0);
+  const ty = previewNoiseFade(y - y0);
+  const n00 = previewNoiseHash(x0, y0, seed);
+  const n10 = previewNoiseHash(x0 + 1, y0, seed);
+  const n01 = previewNoiseHash(x0, y0 + 1, seed);
+  const n11 = previewNoiseHash(x0 + 1, y0 + 1, seed);
+  const top = n00 + (n10 - n00) * tx;
+  const bottom = n01 + (n11 - n01) * tx;
+  return top + (bottom - top) * ty;
+}
+
+function previewFractalNoise(x, y, seed) {
+  let total = 0;
+  let amplitude = 0.58;
+  let frequency = 1;
+  let normalization = 0;
+  for (let octave = 0; octave < 3; octave++) {
+    total += previewValueNoise(x * frequency, y * frequency, seed + octave * 1013) * amplitude;
+    normalization += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2;
+  }
+  return total / normalization;
+}
+
+function previewFlowVector(gridX, gridY) {
+  const mode = rotationMode.value;
+  const angle = mode === 'none' ? 0 : (parseFloat(flowAngle.value) || 0) * Math.PI / 180;
+  const strength = (parseFloat(flowStrength.value) || 0) / 100;
+  const scale = parseFloat(flowScale.value) || 6;
+  const fallback = { x: Math.cos(angle), y: Math.sin(angle) };
+  let vector;
+
+  if (mode === 'none' || mode === 'uniform') {
+    vector = fallback;
+  } else if (mode === 'radial-out') {
+    vector = normalizePreviewVector({ x: gridX, y: gridY }, fallback);
+  } else if (mode === 'radial-in') {
+    vector = normalizePreviewVector({ x: -gridX, y: -gridY }, fallback);
+  } else if (mode === 'orbit-ccw') {
+    vector = normalizePreviewVector({ x: gridY, y: -gridX }, fallback);
+  } else if (mode === 'orbit-cw') {
+    vector = normalizePreviewVector({ x: -gridY, y: gridX }, fallback);
+  } else if (mode === 'spiral-out' || mode === 'spiral-in') {
+    const direction = mode === 'spiral-in' ? -1 : 1;
+    const radial = normalizePreviewVector({ x: gridX * direction, y: gridY * direction }, fallback);
+    vector = rotatePreviewVector(radial, strength * Math.PI * 0.5);
+  } else if (mode === 'wave') {
+    const normal = { x: -fallback.y, y: fallback.x };
+    const projected = gridX * fallback.x + gridY * fallback.y;
+    const wave = Math.sin(projected / scale * Math.PI * 2);
+    vector = normalizePreviewVector({
+      x: fallback.x + normal.x * wave * strength * 2,
+      y: fallback.y + normal.y * wave * strength * 2,
+    }, fallback);
+  } else if (mode === 'cross-wave') {
+    const local = rotatePreviewVector({ x: gridX, y: gridY }, -angle);
+    const frequency = Math.PI * 2 / scale;
+    const cross = normalizePreviewVector({
+      x: Math.cos(local.y * frequency),
+      y: Math.sin(local.x * frequency),
+    }, { x: 1, y: 0 });
+    vector = rotatePreviewVector(normalizePreviewVector({
+      x: 1 - Math.abs(strength) + cross.x * Math.abs(strength),
+      y: cross.y * strength,
+    }, { x: 1, y: 0 }), angle);
+  } else if (mode === 'curl-noise') {
+    const nx = gridX / scale;
+    const ny = gridY / scale;
+    const seed = parseInt(randomSeed.value) || 1;
+    const epsilon = 0.04;
+    const dNoiseDx = previewFractalNoise(nx + epsilon, ny, seed) - previewFractalNoise(nx - epsilon, ny, seed);
+    const dNoiseDy = previewFractalNoise(nx, ny + epsilon, seed) - previewFractalNoise(nx, ny - epsilon, seed);
+    const curl = normalizePreviewVector({ x: dNoiseDy, y: -dNoiseDx }, fallback);
+    const mix = Math.abs(strength);
+    const direction = strength < 0 ? -1 : 1;
+    vector = normalizePreviewVector({
+      x: fallback.x * (1 - mix) + curl.x * mix * direction,
+      y: fallback.y * (1 - mix) + curl.y * mix * direction,
+    }, fallback);
+  } else {
+    const local = rotatePreviewVector({ x: gridX, y: gridY }, -angle);
+    const squeeze = 0.35 + Math.abs(strength) * 1.65;
+    const saddle = normalizePreviewVector({
+      x: local.x,
+      y: -local.y * squeeze * (strength < 0 ? -1 : 1),
+    }, { x: 1, y: 0 });
+    vector = rotatePreviewVector(saddle, angle);
+  }
+
+  const offset = (parseFloat(orientationOffset.value) || 0) * Math.PI / 180;
+  return rotatePreviewVector(vector, offset);
+}
+
+function drawFlowMarker(ctx, x, y, vector) {
+  const length = 8;
+  const endX = x + vector.x * length;
+  const endY = y + vector.y * length;
+  ctx.beginPath();
+  ctx.moveTo(x - vector.x * 3, y - vector.y * 3);
+  ctx.lineTo(endX, endY);
+  ctx.stroke();
+
+  const normalX = -vector.y;
+  const normalY = vector.x;
+  ctx.beginPath();
+  ctx.moveTo(endX, endY);
+  ctx.lineTo(endX - vector.x * 4 + normalX * 2.5, endY - vector.y * 4 + normalY * 2.5);
+  ctx.lineTo(endX - vector.x * 4 - normalX * 2.5, endY - vector.y * 4 - normalY * 2.5);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function renderFlowPreview() {
+  const width = flowPreview.clientWidth || 280;
+  const height = 108;
+  const pixelRatio = window.devicePixelRatio || 1;
+  flowPreview.width = Math.floor(width * pixelRatio);
+  flowPreview.height = Math.floor(height * pixelRatio);
+  const ctx = flowPreview.getContext('2d');
+  ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.strokeStyle = '#18a0fb';
+  ctx.fillStyle = '#18a0fb';
+  ctx.lineWidth = 1.15;
+
+  const columns = 11;
+  const rows = 5;
+  const cellSize = Math.min(22, (width - 30) / (columns - 1), (height - 20) / (rows - 1));
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < columns; col++) {
+      const gridX = col - (columns - 1) / 2;
+      const gridY = row - (rows - 1) / 2;
+      const x = width / 2 + gridX * cellSize;
+      const y = height / 2 + gridY * cellSize;
+      drawFlowMarker(ctx, x, y, previewFlowVector(gridX, gridY));
+    }
+  }
+}
+
+const flowHints = {
+  none: 'Keeps every unit at its base orientation. Unit Axis Offset still corrects custom shapes.',
+  uniform: 'A constant vector field. Base Angle sets the direction everywhere.',
+  'radial-out': 'Vectors point away from the boundary center — a source or burst field.',
+  'radial-in': 'Vectors converge toward the center — a sink or attraction field.',
+  'orbit-ccw': 'Tangential counter-clockwise circulation around the center.',
+  'orbit-cw': 'Tangential clockwise circulation around the center.',
+  'spiral-out': 'Outward radial flow rotated by Bend / Spin; negative and positive values reverse spin.',
+  'spiral-in': 'Inward radial flow rotated by Bend / Spin; useful for funnels and suction.',
+  wave: 'A directional sine flow. Base Angle, Bend and Field Scale all shape the wave.',
+  'cross-wave': 'Two coupled waves form braided or cellular flow lines.',
+  'curl-noise': 'A smooth divergence-free-style noise field; Seed changes the stable turbulence.',
+  saddle: 'A hyperbolic field with opposing attraction and repulsion axes.',
+};
+
+let flowPreviewFrame = null;
+function scheduleFlowRefresh() {
+  valFlowAngle.textContent = (parseFloat(flowAngle.value) || 0).toFixed(0) + '°';
+  valFlowStrength.textContent = (parseFloat(flowStrength.value) || 0).toFixed(0);
+  valFlowScale.textContent = (parseFloat(flowScale.value) || 6).toFixed(0);
+  valOrientationOffset.textContent = (parseFloat(orientationOffset.value) || 0).toFixed(0) + '°';
+  if (flowPreviewFrame !== null) cancelAnimationFrame(flowPreviewFrame);
+  flowPreviewFrame = requestAnimationFrame(() => {
+    flowPreviewFrame = null;
+    renderFlowPreview();
+  });
+}
+
+function updateFlowMode() {
+  const mode = rotationMode.value;
+  const strengthModes = ['spiral-out', 'spiral-in', 'wave', 'cross-wave', 'curl-noise', 'saddle'];
+  const scaleModes = ['wave', 'cross-wave', 'curl-noise'];
+  const angleModes = ['uniform', 'wave', 'cross-wave', 'curl-noise', 'saddle'];
+  flowStrength.disabled = !strengthModes.includes(mode);
+  flowScale.disabled = !scaleModes.includes(mode);
+  flowAngle.disabled = !angleModes.includes(mode);
+  flowStrength.parentElement.style.opacity = flowStrength.disabled ? '0.42' : '1';
+  flowScale.parentElement.style.opacity = flowScale.disabled ? '0.42' : '1';
+  flowAngle.parentElement.style.opacity = flowAngle.disabled ? '0.42' : '1';
+  flowHint.textContent = flowHints[mode];
+  scheduleFlowRefresh();
+}
+
+rotationMode.addEventListener('change', updateFlowMode);
+[flowAngle, flowStrength, flowScale, orientationOffset].forEach((input) => {
+  input.addEventListener('input', scheduleFlowRefresh);
+});
+randomSeed.addEventListener('input', scheduleFlowRefresh);
+
 // ---- Input change → update estimate ----
 gridSpacing.addEventListener('input', () => {
-  if (state.boundaryNode && state.boundaryNode.bounds) {
-    updateEstimate(state.boundaryNode.bounds);
-  }
+  schedulePatternRefresh();
 });
 tileMode.addEventListener('change', () => {
-  if (state.boundaryNode && state.boundaryNode.bounds) {
-    updateEstimate(state.boundaryNode.bounds);
-  }
+  updatePatternMode();
+});
+
+rhythmEnabled.addEventListener('change', updateRhythmUI);
+rhythmMode.addEventListener('change', updateRhythmUI);
+rhythmFlipAngle.addEventListener('input', updateRhythmUI);
+rhythmPhase.addEventListener('input', updateRhythmUI);
+grayscaleMode.addEventListener('change', () => {
+  updateDensityUI();
+  if (state.boundaryNode) updateUI();
+});
+densityMethod.addEventListener('change', updateDensityUI);
+densityMaxSpacing.addEventListener('change', updateDensityUI);
+densityMin.addEventListener('input', updateDensityUI);
+densityCurve.addEventListener('input', updateDensityUI);
+randomSeed.addEventListener('input', updateDensityUI);
+
+document.querySelectorAll('button[data-rhythm-preset]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const preset = button.dataset.rhythmPreset;
+    rhythmEnabled.checked = true;
+    tileMode.value = 'hex';
+    gridAngle.value = '0';
+    rowOffset.value = '0';
+    rowSpacingRatio.value = '100';
+    jitterAmount.value = '0';
+    state.unitPreset = 'triangle';
+    if (preset === 'row-cadence') {
+      rhythmMode.value = 'row-alternate';
+      orientationOffset.value = '90';
+    } else {
+      rhythmMode.value = 'triangle-tessellation';
+      orientationOffset.value = '0';
+    }
+    updateUnitButtons();
+    updatePatternMode();
+    updateRhythmUI();
+    scheduleFlowRefresh();
+  });
+});
+
+[gridAngle, rowOffset, rowSpacingRatio, jitterAmount, randomSeed].forEach((input) => {
+  input.addEventListener('input', schedulePatternRefresh);
 });
 
 // ---- Generate ----
@@ -621,21 +1512,40 @@ generateBtn.addEventListener('click', () => {
     return;
   }
 
-  const isGradient = state.boundaryNode.fillType && state.boundaryNode.fillType.startsWith('GRADIENT');
-
+  const mappingMode = grayscaleMode.value;
+  const radiusByGrayscale = mappingMode === 'radius' || mappingMode === 'both';
+  const densityByGrayscale = mappingMode === 'density' || mappingMode === 'both';
   const params = {
     dotDiameter: parseFloat(dotDiameter.value) || 10,
     maxDiameter: parseFloat(maxDiameter.value) || 20,
     minDiameter: parseFloat(minDiameter.value) || 2,
     gridSpacing: spacing,
     tileMode: tileMode.value,
+    gridAngle: parseFloat(gridAngle.value) || 0,
+    rowOffset: parseFloat(rowOffset.value) || 0,
+    rowSpacingRatio: (parseFloat(rowSpacingRatio.value) || 100) / 100,
+    jitterAmount: parseFloat(jitterAmount.value) || 0,
+    randomSeed: parseInt(randomSeed.value) || 1,
+    unitPreset: state.unitPreset,
     dotSourceNodeId: state.dotSourceNode ? state.dotSourceNode.id : null,
     boundaryNodeId: state.boundaryNode.id,
     sampleColor: sampleColor.checked,
-    sampleBitmap: sampleBitmap.checked,
+    grayscaleMode: mappingMode,
+    sampleBitmap: radiusByGrayscale,
+    densityEnabled: densityByGrayscale,
+    densityMethod: densityMethod.value,
+    densityMaxSpacing: parseFloat(densityMaxSpacing.value) || 4,
+    densityMinPercent: parseFloat(densityMin.value) || 0,
+    densityCurve: (parseFloat(densityCurve.value) || 100) / 100,
     rotationMode: rotationMode.value,
-    curlEnabled: curlEnabled.checked,
-    curlIntensity: parseInt(curlIntensity.value) || 0,
+    flowAngle: parseFloat(flowAngle.value) || 0,
+    flowStrength: parseFloat(flowStrength.value) || 0,
+    flowScale: parseFloat(flowScale.value) || 6,
+    orientationOffset: parseFloat(orientationOffset.value) || 0,
+    rhythmEnabled: rhythmEnabled.checked,
+    rhythmMode: rhythmMode.value,
+    rhythmFlipAngle: parseFloat(rhythmFlipAngle.value) || 180,
+    rhythmPhase: parseInt(rhythmPhase.value) || 0,
     concentricEnabled: concentricEnabled.checked,
     concentricSpacingType: concentricSpacingType.value,
     concentricSpacing: parseFloat(concentricSpacing.value) || 20,
@@ -655,11 +1565,6 @@ generateBtn.addEventListener('click', () => {
 // ---- Cancel ----
 cancelBtn.addEventListener('click', () => {
   parent.postMessage({ pluginMessage: { type: 'cancel' } }, '*');
-});
-
-// ---- Curl toggle → show/hide slider ----
-curlEnabled.addEventListener('change', () => {
-  curlSliderRow.style.display = curlEnabled.checked ? 'flex' : 'none';
 });
 
 // ---- Concentric toggle → show/hide grid vs concentric controls ----
@@ -749,12 +1654,6 @@ polarSpiralType.addEventListener('change', () => {
   }
 });
 
-// ---- Bitmap toggle → refresh UI ----
-sampleBitmap.addEventListener('change', () => {
-  if (state.boundaryNode) updateUI();
-});
-
-
 	// ---- Slider value sync ----
 	function syncSlider(slider, display, decimals) {
 		const v = parseFloat(slider.value);
@@ -763,7 +1662,11 @@ sampleBitmap.addEventListener('change', () => {
 	syncSlider(concentricPhase, valConcentricPhase, 0);
 	syncSlider(polarSkip, valPolarSkip, 0);
 	syncSlider(polarN, valPolarN, 1);
-	syncSlider(curlIntensity, valCurlIntensity, 0);
+	syncLatticeDisplays();
+	updatePatternMode();
+	updateFlowMode();
+	updateRhythmUI();
+	updateDensityUI();
 	concentricPhase.addEventListener('input', function() {
 		syncSlider(concentricPhase, valConcentricPhase, 0);
 		if (state.boundaryNode && state.boundaryNode.bounds) updateEstimate(state.boundaryNode.bounds);
@@ -775,9 +1678,6 @@ sampleBitmap.addEventListener('change', () => {
 	polarN.addEventListener('input', function() {
 		syncSlider(polarN, valPolarN, 1);
 		if (state.boundaryNode && state.boundaryNode.bounds) updateEstimate(state.boundaryNode.bounds);
-	});
-	curlIntensity.addEventListener('input', function() {
-		syncSlider(curlIntensity, valCurlIntensity, 0);
 	});
 // ---- Request initial state ----
 parent.postMessage({ pluginMessage: { type: 'request-selection' } }, '*');

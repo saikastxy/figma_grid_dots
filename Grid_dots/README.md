@@ -1,8 +1,11 @@
 # Grid Dots — Figma Plugin
 
 Generate scattered dot grids inside closed shapes. Dot diameters vary with the
-gradient lightness of the boundary shape, and dot rotations follow configurable
-vector / spiral-curl fields.
+gradient lightness of the boundary shape, and directional units follow
+configurable 2D vector flow fields.
+
+For practical recipes, see the [Chinese dense-pattern guide](DENSE_PATTERN_GUIDE.zh-CN.md).
+For a pure-math port to GLSL/WGSL or compute shaders, see the [shader point-field specification](SHADER_POINT_FIELD_SPEC.zh-CN.md).
 
 ## Project Structure
 
@@ -22,8 +25,8 @@ Grid_dots/
 
 | File | Role |
 |------|------|
-| `code.ts` | Geometry extraction, fill analysis, grid generation, point-in-shape testing, gradient sampling, bitmap export, rotation field computation, dot creation & grouping |
-| `ui.html` | Boundary shape info display, diameter controls, grid/rotation/curl settings, bitmap sampling toggle, dot source shape status, point-count estimation |
+| `code.ts` | Geometry extraction, fill analysis, grid generation, point-in-shape testing, gradient sampling, bitmap export, vector-field computation, unit presets, dot creation & grouping |
+| `ui.html` | Boundary and unit status, diameter/grid controls, live lattice and flow previews, bitmap sampling, point-count estimation |
 | `manifest.json` | Plugin identity (`id`, `main`, `ui`, `documentAccess: "dynamic-page"`) |
 
 ## Features
@@ -42,100 +45,141 @@ uses ray-casting or analytic tests to determine whether a grid point lies inside
 
 | Mode | Behaviour |
 |------|-----------|
-| **Solid fill** | All dots use a single fixed diameter |
-| **Gradient fill** | Dot diameters interpolate between *Max* and *Min* based on gradient lightness at each point. Supports Linear, Radial, Angular, and Diamond gradients via inverse-transform sampling |
-| **Bitmap sampling** (toggle) | Export the boundary node as PNG, decode it in a hidden `<canvas>`, and sample per-pixel lightness. Works with image fills, complex multi-fill nodes, frames with children, etc. Optionally samples per-dot colour from the bitmap |
+| **Disabled** | Grayscale changes neither radius nor density |
+| **Radius only** | Lightness interpolates dot radius between *Max* and *Min* |
+| **Density only** | Lightness changes regular lattice spacing while radius stays fixed |
+| **Radius + Density** | The same lightness sample controls both effects |
 
 Lightness formula (ITU-R BT.709): `L = 0.2126·R + 0.7152·G + 0.0722·B`
 
 Diameter mapping: `diameter = maxDiam − L × (maxDiam − minDiam)` — darker areas
 get larger dots.
 
+### Density by Grayscale
+
+The default `Regular Spacing` method maps lightness to nested sublattices:
+black uses the base `Grid Spacing`, while lighter regions use 2×, 4×, 8×, or
+16× spacing. Because every coarser lattice is a subset of the base lattice, the
+result remains ordered instead of developing random holes. `Density Curve`
+controls how quickly the spacing level changes through the midtones.
+
+The earlier seeded probability method remains available as `Random Thinning`.
+Radius and density modes share one rendered grayscale sample when combined.
+
 ### Grid Tiling Modes
 
 | Mode | Layout |
 |------|--------|
-| **Quad** | Square lattice, uniform row & column spacing |
-| **Hex** | Staggered honeycomb; vertical spacing = `spacing × √3/2`, odd rows offset by `spacing/2` |
-| **Brick** | Like hex but with equal vertical spacing; odd rows offset by `spacing/2` |
-| **Diamond** | Two interleaved square grids offset by `spacing/2` diagonally |
-| **Random** | Uniformly random positions within the bounding box (same point count as quad) |
+| **Square** | Balanced square lattice with equal default row and column spacing |
+| **Hex close-pack** | Triangular lattice; row height = `spacing × √3/2`, row drift = `spacing/2` |
+| **Brick / half-drop** | `spacing/2` row drift with full row height for a directional rhythm |
+| **Dense diamond** | Two interleaved square rows; 2× square candidate density, nearest distance ≈ `0.707 × spacing` |
+| **Poisson blue noise** | Seeded Bridson sampling with a guaranteed minimum centre distance |
+| **Random** | Seeded uniform positions; fast but allows clumps and near-overlaps |
 
 All modes generate candidate points from the bounding box, then filter by the
 actual shape geometry via point-in-shape tests.
 
-### Dot Source Shape
+### Rhythm Tiling
 
-Select a second closed shape in Figma (CTRL+Click). Each grid point clones and
-scales this shape instead of creating a default circle. The scale factor is
-`diameter / sourceWidth`. The source shape itself is never modified.
+The separate **Rhythm Tiling** panel adds a discrete orientation layer that can
+be composed with the grid, fill sampling, custom units, and vector fields.
+`Triangle Faces · Up / Down` is a true triangular-face-center generator: each
+triangular-lattice parallelogram contributes one face of each orientation. The
+other modes alternate orientations on an existing lattice (rows, columns,
+checker phase, or a repeating 2+1 syncopation). `Flip Angle` and `Phase` control
+the visual cadence without changing the source unit or the flow field.
 
-### Rotation Modes
+### Directional Lattice Controls
 
-Each dot's `node.rotation` is set according to the selected mode. Rotation has
-no visible effect on default circles; use a **directional dot source shape**
-(e.g. arrow, triangle, chevron, leaf) to see the rotation field.
+Regular grids share one affine lattice model. Two basis vectors generate each
+point: `p(i,j) = centre + iA + jB`.
 
-All rotation formulas use the dot's position relative to the **shape centre**:
-`θ = atan2(dy, dx)`, `r = √(dx²+dy²)`, `u = r/spacing` (normalised radius).
+- **Direction** rotates both basis vectors around the boundary centre.
+- **Row drift** shears `B` along `A`, so every following row advances in a
+  consistent direction. Positive and negative values reverse the flow.
+- **Row spacing** compresses or expands the perpendicular component of `B`.
+- **Jitter** adds seeded variation up to 45% of the smaller lattice interval.
+- **Seed** makes jitter, uniform random, and Poisson layouts repeatable.
 
-#### Basic modes
+The live Canvas preview and four presets make these relationships visible
+before node generation.
 
-| Mode | Formula | Description |
-|------|---------|-------------|
-| **None** | `0°` | No rotation (default) |
-| **Random** | `random(0, 360)°` | Independently random per dot |
-| **Radial** | `θ` (deg) | All dots point toward centre |
-| **Vortex** | `θ + 90°` | Tangent to radial — circular flow |
-| **Wave H** | `sin(x·0.03) × 180°` | Horizontal sine wave |
-| **Wave V** | `sin(y·0.03) × 180°` | Vertical sine wave |
-| **Noise Field** | `noise(x, y) × 360°` | 3-octave pseudo-Perlin noise field |
+### Which Dense Pattern to Use
 
-#### Spiral curl fields
+| Goal | Recommended pattern | Why |
+|------|---------------------|-----|
+| Maximum density for equal circular dots without overlap | **Hex close-pack** | The triangular/hexagonal arrangement is the densest congruent-circle packing in the plane, with density `π/√12 ≈ 0.9069` |
+| Very dense halftone or moiré construction | **Dense diamond** | Twice the square candidate density; reduce dot diameter below `0.707 × spacing` to avoid overlap |
+| Organic density without visible rows | **Poisson blue noise** | Maintains a minimum distance while suppressing obvious clusters and axes |
+| Directional fabric, scales, or flow | **Brick + direction + row drift** | Strong controllable rhythm while retaining independent angle and row compression |
+| Radial organic fill | **Phyllotaxis** | Golden-angle placement spreads samples around the centre without straight grid axes |
 
-All four spiral modes use the same architecture: dots stay on the **rectangular
-grid**; only their rotation follows the spiral vector field.
+References: [an elementary proof of Thue's circle-packing theorem](https://epub.uni-bayreuth.de/4374/),
+[Bridson's fast Poisson-disk sampling paper](https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph07-poissondisk.pdf),
+and [Vogel's sunflower construction record](https://agris.fao.org/search/en/providers/123819/records/64735f4553aa8c89630a23c5).
 
-Rotation formula: `φ = (θ + f(u)) × 180/π`
+### Basic Unit Presets and Custom Source
 
-| Spiral | f(u) | Turns at u=1 | Turns at u=10 | Character |
-|--------|------|-------------|---------------|-----------|
-| **Archimedean** | `u × 3.0` | ~0.5 | ~4.8 | Uniform arm spacing (`r = aθ`). Constant radial pitch |
-| **Logarithmic** | `log(u+1) × 9.0` | ~1.0 | ~3.4 | Equiangular — arms spread outward like galaxies, nautilus shells |
-| **Fermat** | `√u × 6.0` | ~1.0 | ~3.0 | Arms tighter near centre — sunflower phyllotaxis (`r² ∝ θ`) |
-| **Euler** | `u² × 0.25` | ~0.04 | ~4.0 | Clothoid: curvature `κ ∝ r`, straight at centre, tight far out. Highway transition-curve mathematics |
+The Basic Unit panel provides nine choices. `Selected` preserves the original
+workflow: select the boundary first and a second Figma shape as the unit. The
+source is cloned and scaled without modifying the original.
 
-The number of visible spiral arms ≈ `f(r_max) / (2π)`.
+| Unit | Orientation character |
+|------|-----------------------|
+| **Circle** | Neutral; field rotation is intentionally invisible |
+| **Ellipse** | Smooth bidirectional axis |
+| **Diamond** | Angular bidirectional axis |
+| **Triangle** | Clear forward direction |
+| **Arrow** | Strongest vector-direction indicator |
+| **Capsule** | Compact dash / streamline |
+| **Leaf** | Organic bidirectional streamline |
+| **Chevron** | Strong forward direction with an open-tail silhouette |
+| **Selected** | Any custom Figma shape chosen as the second selected node |
 
-### Curl Modifier
+Preset width follows the computed dot diameter. Each preset has a tuned height
+ratio. For custom units, the scale remains `diameter / sourceWidth`.
 
-Based on the mathematical definition of [curl in 2D vector fields](
-https://en.wikipedia.org/wiki/Curl_(mathematics)). Constant curl = **solid-body
-rotation**: every point rotates at the same angular rate, like a rigid disk.
+### Vector Flow Fields
 
-When the **Apply Curl** checkbox is enabled, an extra rotation term is added to
-whatever mode is selected:
+Rotation is now derived from a local 2D vector rather than independent angle
+effects. For each point `p`, the selected field returns `v(p) = (vx, vy)` and
+the unit orientation is `atan2(vy, vx) + UnitAxisOffset`.
 
-```
-φ_curl = (curlIntensity / 1000) × r   [radians]
-```
+Field coordinates are `(p − boundaryCentre) / gridSpacing`. This makes Wave,
+Cross Wave, Curl Noise, and Saddle independent of the boundary's absolute
+Figma-canvas position. The UI preview evaluates the same grid-cell formulas,
+including the same seeded value-noise hash and finite-difference curl.
 
-The **Curl Intensity** slider (0–100) controls the constant `k`:
+| Field | Behaviour |
+|-------|-----------|
+| **Uniform** | Constant direction controlled by Base Angle |
+| **Radial Out / In** | Source and sink fields around the boundary centre |
+| **Orbit CCW / CW** | Tangent vectors producing pure circulation |
+| **Spiral Out / In** | Radial flow rotated by signed Bend / Spin |
+| **Sine Flow** | Directional wave with adjustable amplitude and wavelength |
+| **Cross Wave** | Two coupled waves producing braided/cellular flow |
+| **Curl Noise** | Seeded, smooth curl-of-noise field blended with a base direction |
+| **Saddle** | Hyperbolic attraction/repulsion axes |
 
-| Slider | k (rad/px) | Extra rotation at r=200px |
-|--------|-----------|--------------------------|
-| 25 | 0.025 | +287° (~0.8 turns) |
-| 50 | 0.050 | +573° (~1.6 turns) |
-| 100 | 0.100 | +1146° (~3.2 turns) |
+Controls are mode-aware:
 
-Curl can be applied to **any** base mode. For example:
-- **None + Curl** → pure solid-body rotation field
-- **Radial + Curl** → inward-pointing with rotational twist
-- **Euler + Curl** → clothoid spiral with additional uniform swirl
+- **Base Angle** defines the uniform or principal field axis.
+- **Bend / Spin** is signed (`-100` to `100`); its sign reverses spiral,
+  wave, noise, or saddle handedness.
+- **Field Scale** controls wavelength or noise feature size in grid-spacing units.
+- **Unit Axis Offset** corrects a custom unit whose natural forward direction
+  is not the plugin's expected `+X` direction.
+- **Seed** is shared with grid jitter/Poisson and makes Curl Noise repeatable.
+
+The live arrow preview shows the final orientation field, including Unit Axis
+Offset, before any Figma nodes are created.
 
 ### Limits & Safety
 
 - **Max 10 000 dots** per generation (hard cap)
+- **Max 50 000 candidates** before boundary clipping; denser inputs fail early
+  instead of allocating or iterating an unbounded grid
 - Grid spacing minimum: **2 px** (UI), **1 px** (code floor)
 - Diameter floor: **0.5 px**
 - Bitmap export capped at **4096 px** max dimension
@@ -149,14 +193,30 @@ Curl can be applied to **any** base mode. For example:
 | `maxDiameter` | number | 20 | Largest dot diameter for gradient/bitmap fills (px) |
 | `minDiameter` | number | 2 | Smallest dot diameter for gradient/bitmap fills (px) |
 | `gridSpacing` | number | 20 | Centre-to-centre distance between dots (px) |
-| `tileMode` | enum | `quad` | Grid layout: `quad`, `hex`, `brick`, `diamond`, `random` |
+| `tileMode` | enum | `quad` | Grid layout: `quad`, `hex`, `brick`, `diamond`, `poisson`, `random` |
+| `gridAngle` | number | 0 | Lattice direction in degrees |
+| `rowOffset` | number | 0 | Progressive row drift as a percentage of spacing (`-100` to `100`) |
+| `rowSpacingRatio` | number | 1 | Perpendicular row spacing multiplier (`0.4` to `2`) |
+| `jitterAmount` | number | 0 | Seeded lattice variation (`0` to `100`) |
+| `randomSeed` | number | 7 | Repeatable seed for jitter, random, and Poisson layouts |
+| `unitPreset` | enum | `circle` | `selected`, `circle`, `ellipse`, `diamond`, `triangle`, `arrow`, `capsule`, `leaf`, `chevron` |
 | `dotSourceNodeId` | string\|null | null | Figma node ID of optional custom dot shape |
 | `boundaryNodeId` | string | — | Figma node ID of the boundary shape |
 | `sampleColor` | boolean | false | Sample dot colours from gradient or bitmap |
-| `sampleBitmap` | boolean | false | Export boundary as PNG and sample pixel lightness |
-| `rotationMode` | enum | `none` | Rotation field: see table above |
-| `curlEnabled` | boolean | false | Enable curl (solid-body rotation) modifier |
-| `curlIntensity` | number | 0 | Curl strength slider 0–100 |
+| `grayscaleMode` | enum | `off` | `off`, `radius`, `density`, or `both`; the latter three are the active grayscale states |
+| `densityMethod` | enum | `spacing` | `spacing` for regular nested sublattices, or optional `random` thinning |
+| `densityMaxSpacing` | number | 4 | Light-area spacing multiplier: `2`, `4`, `8`, or `16` |
+| `densityMinPercent` | number | 5 | Random Thinning only: percentage retained in fully white areas |
+| `densityCurve` | number | 1 | Exponent controlling how strongly midtones are thinned (`0.25`–`4`) |
+| `rotationMode` | enum | `spiral-out` | Vector field: see table above |
+| `flowAngle` | number | 0 | Base/principal field angle in degrees |
+| `flowStrength` | number | 45 | Signed bend, spin, or field blend (`-100` to `100`) |
+| `flowScale` | number | 6 | Wave/noise scale in grid-spacing units |
+| `orientationOffset` | number | 0 | Custom unit axis correction in degrees |
+| `rhythmEnabled` | boolean | false | Enable the discrete orientation rhythm layer |
+| `rhythmMode` | enum | `triangle-tessellation` | Triangle face centers, checker, row/column alternation, or syncopated 2+1 |
+| `rhythmFlipAngle` | number | 180 | Signed orientation change applied on a rhythm hit |
+| `rhythmPhase` | number | 0 | A/B phase swap for the rhythm sequence |
 
 ## Data Flow
 
@@ -171,7 +231,7 @@ User selects shape(s) in Figma
 │  - fill analysis │   (selection state)   │  - diameter ctrls │
 │  - grid points   │                       │  - grid settings  │
 │  - shape filter  │                       │  - rotation mode  │
-│  - diameter calc │                       │  - curl toggle    │
+│  - diameter calc │                       │  - flow preview   │
 │  - rotation calc │                       │  - generate btn   │
 │  - dot creation  │                       │  - estimate       │
 └─────────────────┘                       └──────────────────┘
@@ -179,7 +239,7 @@ User selects shape(s) in Figma
         │  generate-dots (all params)              │
         │◄───────────────────────────────────────│
         │                                        │
-        │  sample-bitmap (PNG + grid points)       │  [bitmap mode only]
+        │  sample-bitmap (PNG + grid points)       │  [bitmap radius or density mode]
         │───────────────────────────────────────►│
         │                                        │
         │  bitmap-result (lightness array)        │
@@ -212,16 +272,21 @@ mapped back to absolute space for dot placement.
   angular = angle, diamond = Manhattan distance), then colour-stop interpolation
 - **Bitmap sampling**: `node.exportAsync({ format: 'PNG' })` → base64 →
   UI Canvas `getImageData()` → per-pixel lightness array → postMessage back
-- **Rotation fields**: Polar decomposition `(r, θ)` relative to shape centre,
-  mode-specific `f(r)` twist function, optional curl solid-body-rotation term
-- **Pseudo-noise**: GLSL-style `fract(sin(x·12.9898 + y·78.233) · 43758.5453)`
-  with 3-octave summation for smooth noise-field rotation
+- **Flow-field rotation**: every point evaluates a local 2D vector; `atan2`
+  converts that vector into unit orientation, with signed spin and axis correction
+- **Affine lattices**: two rotated basis vectors support direction, progressive
+  row drift, row compression, and deterministic jitter without pattern-specific loops
+- **Poisson blue noise**: Bridson active-list sampler with a `spacing` minimum
+  distance, seeded PRNG, and bounded background-grid allocation
+- **Curl noise**: seeded three-octave interpolated value noise is differentiated
+  into a smooth curl vector and blended with the base field
 
 ## Development
 
 ```bash
 npm install          # Install TypeScript, ESLint, Figma typings
 npm run build        # Compile TypeScript → code.js
+npm test             # Build and verify lattice density, seed, distance, and caps
 npm run watch        # Auto-rebuild on changes
 npm run lint         # Run ESLint
 ```
@@ -237,6 +302,10 @@ npm run lint         # Run ESLint
 
 | Version | Tag | Changes |
 |---------|-----|---------|
+| v1.0 | `20260808` | Unified 2D vector flow fields, live orientation preview, signed spin/scale/axis controls, and nine basic-unit choices including custom selection |
+| v0.9 | `20260808` | Directional affine lattices, live preview, four dense presets, seeded jitter/random, Poisson blue noise, candidate safety cap, grid tests |
+| v0.8 | — | Rounded rectangle, frame, polygon, and star boundary support |
+| v0.7 | — | Concentric, polar-curve, and phyllotaxis distributions |
 | v0.6 | `20260531` | Rotation modes (7 basic + 4 spiral curl fields), curl modifier with intensity slider |
 | v0.5 | `20260530` | Bitmap lightness sampling mode (PNG export + Canvas pixel read) |
 | v0.4 | — | Random, diamond, and brick grid tiling modes |

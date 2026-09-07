@@ -4,19 +4,73 @@
 
 // ---- Types ----
 
+type TileMode = 'quad' | 'hex' | 'random' | 'diamond' | 'brick' | 'poisson';
+type UnitPreset =
+  | 'selected'
+  | 'circle'
+  | 'ellipse'
+  | 'diamond'
+  | 'triangle'
+  | 'arrow'
+  | 'capsule'
+  | 'leaf'
+  | 'chevron';
+type FlowMode =
+  | 'none'
+  | 'uniform'
+  | 'radial-out'
+  | 'radial-in'
+  | 'orbit-ccw'
+  | 'orbit-cw'
+  | 'spiral-out'
+  | 'spiral-in'
+  | 'wave'
+  | 'cross-wave'
+  | 'curl-noise'
+  | 'saddle';
+type RhythmMode = 'triangle-tessellation' | 'alternate' | 'row-alternate' | 'column-alternate' | 'syncopated';
+type GrayscaleMode = 'off' | 'radius' | 'density' | 'both';
+type DensityMethod = 'spacing' | 'random';
+
+interface PointCandidate {
+  x: number;
+  y: number;
+  latticeI?: number;
+  latticeJ?: number;
+  rhythmOffset?: number;
+}
+
 interface GenerateParams {
   dotDiameter: number;
   maxDiameter: number;
   minDiameter: number;
   gridSpacing: number;
-  tileMode: 'quad' | 'hex' | 'random' | 'diamond' | 'brick';
+  tileMode: TileMode;
+  gridAngle: number;
+  rowOffset: number;
+  rowSpacingRatio: number;
+  jitterAmount: number;
+  randomSeed: number;
+  unitPreset: UnitPreset;
   dotSourceNodeId: string | null;
   boundaryNodeId: string;
   sampleColor: boolean;
   sampleBitmap: boolean;
-  rotationMode: 'none' | 'random' | 'radial' | 'vortex' | 'wave-h' | 'wave-v' | 'noise' | 'archimedean' | 'logarithmic' | 'fermat' | 'euler';
-  curlEnabled: boolean;
-  curlIntensity: number; // 0–100 slider
+  densityEnabled: boolean;
+  grayscaleMode: GrayscaleMode;
+  densityMethod: DensityMethod;
+  densityMaxSpacing: number;
+  densityMinPercent: number;
+  densityCurve: number;
+  rotationMode: FlowMode;
+  flowAngle: number;
+  flowStrength: number;
+  flowScale: number;
+  orientationOffset: number;
+  rhythmEnabled: boolean;
+  rhythmMode: RhythmMode;
+  rhythmFlipAngle: number;
+  rhythmPhase: number;
   concentricEnabled: boolean;
   concentricSpacingType: 'equal' | 'arithmetic' | 'geometric';
   concentricSpacing: number;
@@ -52,7 +106,7 @@ interface FillResult {
 
 // ---- Plugin Init ----
 
-figma.showUI(__html__, { width: 320, height: 560 });
+figma.showUI(__html__, { width: 340, height: 640 });
 
 let bitmapResolve: ((data: { lightness: number[]; colors?: RGBA[] }) => void) | null = null;
 
@@ -263,7 +317,7 @@ function computePolygonVertices(
   h: number,
   pointCount: number,
   rotation: number,
-  cornerRadius: number,
+  _cornerRadius: number,
 ): { x: number; y: number }[] {
   const cx = w / 2;
   const cy = h / 2;
@@ -577,103 +631,328 @@ function pointInPolygon(
 
 // ---- Grid Generation ----
 
-function generateGridPoints(
+function createSeededRandom(seed: number): () => number {
+  let state = Math.floor(seed) >>> 0;
+  if (state === 0) state = 0x6d2b79f5;
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function generatePoissonDiskPoints(
   bounds: { x: number; y: number; width: number; height: number },
-  spacing: number,
-  mode: 'quad' | 'hex' | 'random' | 'diamond' | 'brick',
+  minDistance: number,
+  seed: number,
+  maxPoints: number,
 ): { x: number; y: number }[] {
   const points: { x: number; y: number }[] = [];
-  if (spacing <= 0) return points;
+  if (minDistance <= 0 || bounds.width <= 0 || bounds.height <= 0) return points;
 
-  const cols = Math.ceil(bounds.width / spacing) + 1;
-  const rows = Math.ceil(bounds.height / spacing) + 1;
+  const random = createSeededRandom(seed);
+  const cellSize = minDistance / Math.sqrt(2);
+  const gridWidth = Math.max(1, Math.ceil(bounds.width / cellSize));
+  const gridHeight = Math.max(1, Math.ceil(bounds.height / cellSize));
+  const cellCount = gridWidth * gridHeight;
+  if (!Number.isSafeInteger(cellCount) || cellCount > maxPoints * 6) {
+    points.length = maxPoints + 1;
+    return points;
+  }
+  const backgroundGrid = new Int32Array(gridWidth * gridHeight);
+  backgroundGrid.fill(-1);
+  const active: number[] = [];
+  const minDistanceSq = minDistance * minDistance;
+  const attempts = 30;
 
-  switch (mode) {
-    case 'quad': {
-      for (let row = 0; row <= rows; row++) {
-        for (let col = 0; col <= cols; col++) {
-          points.push({
-            x: bounds.x + col * spacing,
-            y: bounds.y + row * spacing,
-          });
+  const addPoint = (point: { x: number; y: number }) => {
+    const index = points.length;
+    points.push(point);
+    active.push(index);
+    const gx = Math.min(gridWidth - 1, Math.floor((point.x - bounds.x) / cellSize));
+    const gy = Math.min(gridHeight - 1, Math.floor((point.y - bounds.y) / cellSize));
+    backgroundGrid[gy * gridWidth + gx] = index;
+  };
+
+  addPoint({
+    x: bounds.x + random() * bounds.width,
+    y: bounds.y + random() * bounds.height,
+  });
+
+  while (active.length > 0 && points.length <= maxPoints) {
+    const activeSlot = Math.floor(random() * active.length);
+    const origin = points[active[activeSlot]];
+    let accepted = false;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const angle = random() * Math.PI * 2;
+      const radius = minDistance * Math.sqrt(1 + 3 * random());
+      const candidate = {
+        x: origin.x + Math.cos(angle) * radius,
+        y: origin.y + Math.sin(angle) * radius,
+      };
+
+      if (
+        candidate.x < bounds.x ||
+        candidate.x > bounds.x + bounds.width ||
+        candidate.y < bounds.y ||
+        candidate.y > bounds.y + bounds.height
+      ) {
+        continue;
+      }
+
+      const gx = Math.floor((candidate.x - bounds.x) / cellSize);
+      const gy = Math.floor((candidate.y - bounds.y) / cellSize);
+      let clear = true;
+
+      for (let ny = Math.max(0, gy - 2); ny <= Math.min(gridHeight - 1, gy + 2) && clear; ny++) {
+        for (let nx = Math.max(0, gx - 2); nx <= Math.min(gridWidth - 1, gx + 2); nx++) {
+          const neighborIndex = backgroundGrid[ny * gridWidth + nx];
+          if (neighborIndex < 0) continue;
+          const neighbor = points[neighborIndex];
+          const dx = candidate.x - neighbor.x;
+          const dy = candidate.y - neighbor.y;
+          if (dx * dx + dy * dy < minDistanceSq) {
+            clear = false;
+            break;
+          }
         }
       }
-      break;
-    }
-    case 'hex': {
-      const vSpacing = spacing * (Math.sqrt(3) / 2);
-      const hRows = Math.ceil(bounds.height / vSpacing) + 1;
-      for (let row = 0; row <= hRows; row++) {
-        const offsetX = row % 2 === 0 ? 0 : spacing / 2;
-        for (let col = 0; col <= cols; col++) {
-          points.push({
-            x: bounds.x + col * spacing + offsetX,
-            y: bounds.y + row * vSpacing,
-          });
-        }
+
+      if (clear) {
+        addPoint(candidate);
+        accepted = true;
+        break;
       }
-      break;
     }
-    case 'brick': {
-      for (let row = 0; row <= rows; row++) {
-        const offsetX = row % 2 === 0 ? 0 : spacing / 2;
-        for (let col = 0; col <= cols; col++) {
-          points.push({
-            x: bounds.x + col * spacing + offsetX,
-            y: bounds.y + row * spacing,
-          });
-        }
-      }
-      break;
-    }
-    case 'diamond': {
-      for (let row = 0; row <= rows; row++) {
-        for (let col = 0; col <= cols; col++) {
-          const cx = bounds.x + col * spacing;
-          const cy = bounds.y + row * spacing;
-          points.push({ x: cx, y: cy });
-          points.push({ x: cx + spacing / 2, y: cy + spacing / 2 });
-        }
-      }
-      break;
-    }
-    case 'random': {
-      const targetCount = cols * rows;
-      for (let i = 0; i < targetCount; i++) {
-        points.push({
-          x: bounds.x + Math.random() * bounds.width,
-          y: bounds.y + Math.random() * bounds.height,
-        });
-      }
-      break;
+
+    if (!accepted) {
+      active[activeSlot] = active[active.length - 1];
+      active.pop();
     }
   }
 
   return points;
 }
 
-function estimatePointCount(
-  bounds: { width: number; height: number },
+function generateGridPoints(
+  bounds: { x: number; y: number; width: number; height: number },
   spacing: number,
-  mode: 'quad' | 'hex' | 'random' | 'diamond' | 'brick',
-): number {
-  if (spacing <= 0) return 0;
-  const baseCols = Math.ceil(bounds.width / spacing) + 1;
-  const baseRows = Math.ceil(bounds.height / spacing) + 1;
-  const base = baseCols * baseRows;
-  switch (mode) {
-    case 'quad':
-    case 'brick':
-    case 'random':
-      return base;
-    case 'hex': {
-      const vSpacing = spacing * (Math.sqrt(3) / 2);
-      const hRows = Math.ceil(bounds.height / vSpacing) + 1;
-      return baseCols * hRows;
-    }
-    case 'diamond':
-      return base * 2;
+  mode: TileMode,
+  angleDeg: number,
+  rowOffsetPercent: number,
+  rowSpacingRatio: number,
+  jitterAmount: number,
+  seed: number,
+  maxPoints: number,
+): PointCandidate[] {
+  const points: PointCandidate[] = [];
+  if (spacing <= 0 || bounds.width <= 0 || bounds.height <= 0) return points;
+
+  if (mode === 'poisson') {
+    return generatePoissonDiskPoints(bounds, spacing, seed, maxPoints);
   }
+
+  const rowRatio = clamp(finiteOr(rowSpacingRatio, 1), 0.25, 4);
+  const random = createSeededRandom(seed);
+
+  if (mode === 'random') {
+    const targetCount = Math.ceil((bounds.width * bounds.height) / (spacing * spacing * rowRatio));
+    for (let i = 0; i < Math.min(targetCount, maxPoints + 1); i++) {
+      points.push({
+        x: bounds.x + random() * bounds.width,
+        y: bounds.y + random() * bounds.height,
+      });
+    }
+    return points;
+  }
+
+  let presetRowShift = 0;
+  let presetRowHeight = 1;
+  if (mode === 'hex') {
+    presetRowShift = 0.5;
+    presetRowHeight = Math.sqrt(3) / 2;
+  } else if (mode === 'brick') {
+    presetRowShift = 0.5;
+  } else if (mode === 'diamond') {
+    presetRowShift = 0.5;
+    presetRowHeight = 0.5;
+  }
+
+  const angle = (finiteOr(angleDeg, 0) * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const rowShift = presetRowShift + clamp(finiteOr(rowOffsetPercent, 0), -200, 200) / 100;
+  const rowHeight = presetRowHeight * rowRatio;
+
+  // A and B are the two basis vectors of the lattice. Row offset shears B
+  // along A; rotating both vectors changes the overall flow direction.
+  const ax = cos * spacing;
+  const ay = sin * spacing;
+  const bx = (cos * rowShift - sin * rowHeight) * spacing;
+  const by = (sin * rowShift + cos * rowHeight) * spacing;
+  const det = ax * by - ay * bx;
+  if (Math.abs(det) < 1e-9) return points;
+
+  const center = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  const corners = [
+    { x: bounds.x, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    { x: bounds.x, y: bounds.y + bounds.height },
+  ];
+
+  let minI = Infinity;
+  let maxI = -Infinity;
+  let minJ = Infinity;
+  let maxJ = -Infinity;
+  for (const corner of corners) {
+    const dx = corner.x - center.x;
+    const dy = corner.y - center.y;
+    const i = (dx * by - dy * bx) / det;
+    const j = (ax * dy - ay * dx) / det;
+    minI = Math.min(minI, i);
+    maxI = Math.max(maxI, i);
+    minJ = Math.min(minJ, j);
+    maxJ = Math.max(maxJ, j);
+  }
+
+  const jitter = clamp(finiteOr(jitterAmount, 0), 0, 100) / 100;
+  const jitterRadius = Math.min(spacing, rowHeight * spacing) * 0.45 * jitter;
+  const padding = jitter > 0 ? 2 : 1;
+  const startI = Math.floor(minI) - padding;
+  const endI = Math.ceil(maxI) + padding;
+  const startJ = Math.floor(minJ) - padding;
+  const endJ = Math.ceil(maxJ) + padding;
+
+  for (let row = startJ; row <= endJ; row++) {
+    for (let col = startI; col <= endI; col++) {
+      let x = center.x + col * ax + row * bx;
+      let y = center.y + col * ay + row * by;
+      if (jitterRadius > 0) {
+        x += (random() * 2 - 1) * jitterRadius;
+        y += (random() * 2 - 1) * jitterRadius;
+      }
+      if (
+        x >= bounds.x - jitterRadius &&
+        x <= bounds.x + bounds.width + jitterRadius &&
+        y >= bounds.y - jitterRadius &&
+        y <= bounds.y + bounds.height + jitterRadius
+      ) {
+        points.push({ x, y, latticeI: col, latticeJ: row });
+        if (points.length > maxPoints) return points;
+      }
+    }
+  }
+
+  return points;
+}
+
+/**
+ * Centers of the two congruent triangular faces in each triangular-lattice
+ * parallelogram. Their local offsets are (A+B)/3 and 2(A+B)/3, so the
+ * resulting units share edges instead of merely alternating orientations on a
+ * square point grid.
+ */
+function generateTriangleTessellationPoints(
+  bounds: { x: number; y: number; width: number; height: number },
+  side: number,
+  angleDeg: number,
+  rowSpacingRatio: number,
+  jitterAmount: number,
+  seed: number,
+  maxPoints: number,
+): PointCandidate[] {
+  const points: PointCandidate[] = [];
+  if (side <= 0 || bounds.width <= 0 || bounds.height <= 0) return points;
+
+  const random = createSeededRandom(seed);
+  const ratio = clamp(finiteOr(rowSpacingRatio, 1), 0.25, 4);
+  const height = (Math.sqrt(3) / 2) * ratio;
+  const angle = (finiteOr(angleDeg, 0) * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const ax = cos * side;
+  const ay = sin * side;
+  const bx = (cos * 0.5 - sin * height) * side;
+  const by = (sin * 0.5 + cos * height) * side;
+  const det = ax * by - ay * bx;
+  if (Math.abs(det) < 1e-9) return points;
+
+  const center = {
+    x: bounds.x + bounds.width / 2,
+    y: bounds.y + bounds.height / 2,
+  };
+  const corners = [
+    { x: bounds.x, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y },
+    { x: bounds.x + bounds.width, y: bounds.y + bounds.height },
+    { x: bounds.x, y: bounds.y + bounds.height },
+  ];
+  let minI = Infinity;
+  let maxI = -Infinity;
+  let minJ = Infinity;
+  let maxJ = -Infinity;
+  for (const corner of corners) {
+    const dx = corner.x - center.x;
+    const dy = corner.y - center.y;
+    const i = (dx * by - dy * bx) / det;
+    const j = (ax * dy - ay * dx) / det;
+    minI = Math.min(minI, i);
+    maxI = Math.max(maxI, i);
+    minJ = Math.min(minJ, j);
+    maxJ = Math.max(maxJ, j);
+  }
+
+  const jitter = clamp(finiteOr(jitterAmount, 0), 0, 100) / 100;
+  const jitterRadius = Math.min(side, height * side) * 0.22 * jitter;
+  const startI = Math.floor(minI) - 2;
+  const endI = Math.ceil(maxI) + 2;
+  const startJ = Math.floor(minJ) - 2;
+  const endJ = Math.ceil(maxJ) + 2;
+
+  const addFace = (i: number, j: number, faceOffset: { x: number; y: number }, rhythmOffset: number) => {
+    let x = center.x + i * ax + j * bx + faceOffset.x * ax + faceOffset.y * bx;
+    let y = center.y + i * ay + j * by + faceOffset.x * ay + faceOffset.y * by;
+    if (jitterRadius > 0) {
+      x += (random() * 2 - 1) * jitterRadius;
+      y += (random() * 2 - 1) * jitterRadius;
+    }
+    if (
+      x < bounds.x - jitterRadius ||
+      x > bounds.x + bounds.width + jitterRadius ||
+      y < bounds.y - jitterRadius ||
+      y > bounds.y + bounds.height + jitterRadius
+    ) {
+      return true;
+    }
+    points.push({ x, y, latticeI: i, latticeJ: j, rhythmOffset });
+    return points.length <= maxPoints;
+  };
+
+  for (let row = startJ; row <= endJ; row++) {
+    for (let col = startI; col <= endI; col++) {
+      // Face centroids in local lattice coordinates:
+      // A = (A + B) / 3, B = 2(A + B) / 3.
+      if (!addFace(col, row, { x: 1 / 3, y: 1 / 3 }, 1)) return points;
+      if (!addFace(col, row, { x: 2 / 3, y: 2 / 3 }, 0)) return points;
+    }
+  }
+
+  return points;
 }
 
 // ---- Concentric Circle Point Generation ----
@@ -686,6 +965,7 @@ function generateConcentricPoints(
   delta: number,
   ratio: number,
   phaseOffsetDeg: number,
+  maxPoints: number,
 ): { x: number; y: number }[] {
   const points: { x: number; y: number }[] = [];
   if (spacing <= 0) return points;
@@ -730,6 +1010,7 @@ function generateConcentricPoints(
         x: center.x + ringRadius * Math.cos(angle),
         y: center.y + ringRadius * Math.sin(angle),
       });
+      if (points.length > maxPoints) return points;
     }
 
     ringIndex++;
@@ -784,6 +1065,7 @@ function generatePolarPoints(
   skip: number,
   spiralType: 'archimedean' | 'fermat' | 'logarithmic' | 'euler',
   densitySpacing: number,
+  maxPoints: number,
 ): { x: number; y: number }[] {
   const points: { x: number; y: number }[] = [];
   if (maxRadius <= 0 || densitySpacing <= 0) return points;
@@ -827,6 +1109,7 @@ function generatePolarPoints(
           x: center.x + ri * Math.cos(curvedAngle),
           y: center.y + ri * Math.sin(curvedAngle),
         });
+        if (points.length > maxPoints) return points;
         accumulatedArc = 0;
       }
 
@@ -849,6 +1132,7 @@ function generatePhyllotaxisPoints(
   center: { x: number; y: number },
   maxRadius: number,
   scale: number,
+  maxPoints: number,
 ): { x: number; y: number }[] {
   const points: { x: number; y: number }[] = [];
   if (maxRadius <= 0 || scale <= 0) return points;
@@ -857,7 +1141,7 @@ function generatePhyllotaxisPoints(
   // Seeds within radius R: n_max = floor((R / scale)^2)
   const maxN = Math.floor((maxRadius / scale) ** 2);
 
-  for (let n = 0; n <= maxN; n++) {
+  for (let n = 0; n <= Math.min(maxN, maxPoints); n++) {
     const r = scale * Math.sqrt(n);
     const theta = n * GOLDEN_ANGLE;
     points.push({
@@ -870,10 +1154,6 @@ function generatePhyllotaxisPoints(
 }
 
 // ---- Gradient Sampling ----
-
-function getLightness(color: RGBA): number {
-  return 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
-}
 
 function sampleGradient(
   normalizedPt: { x: number; y: number },
@@ -924,7 +1204,7 @@ function sampleStops(stops: readonly ColorStop[], t: number): RGBA {
       break;
     }
   }
-  let hi = lo + 1;
+  const hi = lo + 1;
   if (hi >= stops.length) {
     return stops[lo].color;
   }
@@ -982,98 +1262,428 @@ function uint8ArrayToBase64(bytes: Uint8Array): string {
   return result;
 }
 
-// ---- Rotation Computation ----
+// ---- Flow-field Rotation Computation ----
 
-function pseudoNoise(x: number, y: number): number {
-  const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-  return n - Math.floor(n);
+interface Vector2 {
+  x: number;
+  y: number;
 }
 
-function smoothNoise(x: number, y: number): number {
-  return (
-    pseudoNoise(x, y) * 0.5 +
-    pseudoNoise(x * 2.1, y * 2.1) * 0.3 +
-    pseudoNoise(x * 4.3, y * 4.3) * 0.2
-  );
+function noiseHash(x: number, y: number, seed: number): number {
+  let value = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(seed, 1442695041);
+  value = Math.imul(value ^ (value >>> 13), 1274126177);
+  return ((value ^ (value >>> 16)) >>> 0) / 4294967295;
 }
 
-function computeRotation(
+function noiseFade(value: number): number {
+  return value * value * value * (value * (value * 6 - 15) + 10);
+}
+
+function valueNoise(x: number, y: number, seed: number): number {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const tx = noiseFade(x - x0);
+  const ty = noiseFade(y - y0);
+  const n00 = noiseHash(x0, y0, seed);
+  const n10 = noiseHash(x0 + 1, y0, seed);
+  const n01 = noiseHash(x0, y0 + 1, seed);
+  const n11 = noiseHash(x0 + 1, y0 + 1, seed);
+  const top = n00 + (n10 - n00) * tx;
+  const bottom = n01 + (n11 - n01) * tx;
+  return top + (bottom - top) * ty;
+}
+
+function fractalNoise(x: number, y: number, seed: number): number {
+  let total = 0;
+  let amplitude = 0.58;
+  let frequency = 1;
+  let normalization = 0;
+  for (let octave = 0; octave < 3; octave++) {
+    total += valueNoise(x * frequency, y * frequency, seed + octave * 1013) * amplitude;
+    normalization += amplitude;
+    amplitude *= 0.5;
+    frequency *= 2;
+  }
+  return total / normalization;
+}
+
+function rotateVector(vector: Vector2, angle: number): Vector2 {
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return {
+    x: vector.x * cos - vector.y * sin,
+    y: vector.x * sin + vector.y * cos,
+  };
+}
+
+function normalizeVector(vector: Vector2, fallback: Vector2): Vector2 {
+  const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+  if (length < 1e-9) return fallback;
+  return { x: vector.x / length, y: vector.y / length };
+}
+
+function computeFlowRotation(
   pt: { x: number; y: number },
   center: { x: number; y: number },
   mode: string,
   gridSpacing: number,
-  curlEnabled: boolean,
-  curlIntensity: number,
+  fieldAngleDeg: number,
+  fieldStrength: number,
+  fieldScale: number,
+  orientationOffsetDeg: number,
+  seed: number,
 ): number {
   const dx = pt.x - center.x;
   const dy = pt.y - center.y;
-  const deg = 180 / Math.PI;
-  const theta = Math.atan2(dy, dx);
-  const r = Math.sqrt(dx * dx + dy * dy);
-  const s = Math.max(1, gridSpacing);
-  const u = r / s; // normalized radius
-
-  let rotation: number;
+  const spacing = Math.max(1, gridSpacing);
+  // Work in grid-cell coordinates so a field depends on its position inside
+  // the boundary, not on the boundary's absolute canvas location.
+  const gridX = dx / spacing;
+  const gridY = dy / spacing;
+  const fieldAngle = (finiteOr(fieldAngleDeg, 0) * Math.PI) / 180;
+  const strength = clamp(finiteOr(fieldStrength, 50), -100, 100) / 100;
+  const scale = clamp(finiteOr(fieldScale, 6), 1, 24);
+  const fallback = { x: Math.cos(fieldAngle), y: Math.sin(fieldAngle) };
+  let vector: Vector2;
 
   switch (mode) {
     case 'none':
-      rotation = 0;
+      return finiteOr(orientationOffsetDeg, 0);
+    case 'uniform':
+      vector = fallback;
       break;
-    case 'random':
-      rotation = Math.random() * 360;
+    case 'radial': // legacy alias
+    case 'radial-out':
+      vector = normalizeVector({ x: dx, y: dy }, fallback);
       break;
-    case 'radial':
-      rotation = theta * deg;
+    case 'radial-in':
+      vector = normalizeVector({ x: -dx, y: -dy }, fallback);
       break;
-    case 'vortex':
-      rotation = theta * deg + 90;
+    case 'orbit-ccw':
+      vector = normalizeVector({ x: dy, y: -dx }, fallback);
       break;
-    case 'wave-h':
-      rotation = Math.sin(pt.x * 0.03) * 180;
+    case 'vortex': // legacy alias
+    case 'orbit-cw':
+      vector = normalizeVector({ x: -dy, y: dx }, fallback);
       break;
-    case 'wave-v':
-      rotation = Math.sin(pt.y * 0.03) * 180;
-      break;
-    case 'noise':
-      rotation = smoothNoise(pt.x * 0.008, pt.y * 0.008) * 360;
-      break;
-    // ---- Spiral curl fields ----
-    // Dots stay on the grid; their rotation follows a spiral vector field.
-    // rotation = (polar angle θ + distance-dependent twist f(r)) in degrees.
-    // f(r) determines the number of visible spiral arms: ~f(r_max)/(2π) arms.
+    case 'spiral-out':
     case 'archimedean':
-      // Constant radial arm spacing: f(r) ∝ r
-      // ~0.5 turns at r=s, ~4.8 turns at r=10s
-      rotation = (theta + u * 3.0) * deg;
-      break;
     case 'logarithmic':
-      // Arms spread outward (equiangular): f(r) ∝ log(r)
-      // ~1 turn at r=s, ~3.4 turns at r=10s
-      rotation = (theta + Math.log(u + 1) * 9.0) * deg;
-      break;
     case 'fermat':
-      // Arms tighter near center (sunflower phyllotaxis): f(r) ∝ √r
-      // ~1 turn at r=s, ~3 turns at r=10s
-      rotation = (theta + Math.sqrt(u) * 6.0) * deg;
+    case 'euler': {
+      const radial = normalizeVector({ x: dx, y: dy }, fallback);
+      vector = rotateVector(radial, strength * Math.PI * 0.5);
       break;
-    case 'euler':
-      // Clothoid: curvature κ ∝ r, so f(r) ∝ r²
-      // ~0 turns at center → ~4 turns at r=10s (smooth transition)
-      rotation = (theta + u * u * 0.25) * deg;
+    }
+    case 'spiral-in': {
+      const inward = normalizeVector({ x: -dx, y: -dy }, fallback);
+      vector = rotateVector(inward, strength * Math.PI * 0.5);
+      break;
+    }
+    case 'wave-h':
+    case 'wave-v':
+    case 'wave': {
+      const legacyAngle = mode === 'wave-v' ? fieldAngle + Math.PI / 2 : fieldAngle;
+      const axis = { x: Math.cos(legacyAngle), y: Math.sin(legacyAngle) };
+      const normal = { x: -axis.y, y: axis.x };
+      const projected = gridX * axis.x + gridY * axis.y;
+      const wave = Math.sin((projected / scale) * Math.PI * 2);
+      vector = normalizeVector(
+        { x: axis.x + normal.x * wave * strength * 2, y: axis.y + normal.y * wave * strength * 2 },
+        axis,
+      );
+      break;
+    }
+    case 'cross-wave': {
+      const inverse = rotateVector({ x: gridX, y: gridY }, -fieldAngle);
+      const frequency = (Math.PI * 2) / scale;
+      const cross = normalizeVector(
+        { x: Math.cos(inverse.y * frequency), y: Math.sin(inverse.x * frequency) },
+        { x: 1, y: 0 },
+      );
+      const mixed = normalizeVector(
+        { x: 1 - Math.abs(strength) + cross.x * Math.abs(strength), y: cross.y * strength },
+        { x: 1, y: 0 },
+      );
+      vector = rotateVector(mixed, fieldAngle);
+      break;
+    }
+    case 'noise': // legacy alias
+    case 'curl-noise': {
+      const nx = gridX / scale;
+      const ny = gridY / scale;
+      const epsilon = 0.04;
+      const dNoiseDx = fractalNoise(nx + epsilon, ny, seed) - fractalNoise(nx - epsilon, ny, seed);
+      const dNoiseDy = fractalNoise(nx, ny + epsilon, seed) - fractalNoise(nx, ny - epsilon, seed);
+      const curl = normalizeVector({ x: dNoiseDy, y: -dNoiseDx }, fallback);
+      const mix = Math.abs(strength);
+      const direction = strength < 0 ? -1 : 1;
+      vector = normalizeVector(
+        {
+          x: fallback.x * (1 - mix) + curl.x * mix * direction,
+          y: fallback.y * (1 - mix) + curl.y * mix * direction,
+        },
+        fallback,
+      );
+      break;
+    }
+    case 'saddle': {
+      const local = rotateVector({ x: gridX, y: gridY }, -fieldAngle);
+      const squeeze = 0.35 + Math.abs(strength) * 1.65;
+      const saddle = normalizeVector(
+        { x: local.x, y: -local.y * squeeze * (strength < 0 ? -1 : 1) },
+        { x: 1, y: 0 },
+      );
+      vector = rotateVector(saddle, fieldAngle);
+      break;
+    }
+    default:
+      vector = fallback;
+  }
+
+  const angleDeg = (Math.atan2(vector.y, vector.x) * 180) / Math.PI;
+  return angleDeg + finiteOr(orientationOffsetDeg, 0);
+}
+
+function positiveModulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+/**
+ * Converts sampled lightness to the probability that a candidate point is
+ * kept. Black always keeps every candidate; white keeps the configured floor.
+ */
+function computeDensityProbability(
+  lightness: number,
+  minDensityPercent: number,
+  curve: number,
+): number {
+  const darkness = 1 - clamp(finiteOr(lightness, 1), 0, 1);
+  const minimum = clamp(finiteOr(minDensityPercent, 5), 0, 100) / 100;
+  const response = clamp(finiteOr(curve, 1), 0.25, 4);
+  return minimum + (1 - minimum) * Math.pow(darkness, response);
+}
+
+/**
+ * Maps lightness onto nested regular sublattices. Powers of two ensure every
+ * lighter/coarser lattice remains a subset of the darker/denser lattice.
+ */
+function computeDensitySpacingMultiplier(
+  lightness: number,
+  maxSpacingMultiplier: number,
+  curve: number,
+): number {
+  const value = clamp(finiteOr(lightness, 1), 0, 1);
+  const maximum = clamp(finiteOr(maxSpacingMultiplier, 4), 1, 16);
+  const maxLevel = Math.max(0, Math.round(Math.log(maximum) / Math.log(2)));
+  const response = clamp(finiteOr(curve, 1), 0.25, 4);
+  const spacingResponse = 1 - Math.pow(1 - value, response);
+  const level = Math.round(spacingResponse * maxLevel);
+  return Math.pow(2, level);
+}
+
+function keepPointOnDensitySublattice(
+  pt: { x: number; y: number },
+  center: { x: number; y: number },
+  gridSpacing: number,
+  lightness: number,
+  maxSpacingMultiplier: number,
+  curve: number,
+  seed: number,
+  latticeI?: number,
+  latticeJ?: number,
+): boolean {
+  const stride = computeDensitySpacingMultiplier(lightness, maxSpacingMultiplier, curve);
+  if (stride <= 1) return true;
+  const spacing = Math.max(1, finiteOr(gridSpacing, 20));
+  const cellI = Number.isFinite(latticeI)
+    ? Math.round(latticeI as number)
+    : Math.round((pt.x - center.x) / spacing);
+  const cellJ = Number.isFinite(latticeJ)
+    ? Math.round(latticeJ as number)
+    : Math.round((pt.y - center.y) / spacing);
+  const seedValue = Math.floor(finiteOr(seed, 1));
+  const phaseI = positiveModulo(seedValue, stride);
+  const phaseJ = positiveModulo(seedValue * 3 + 1, stride);
+  return (
+    positiveModulo(cellI - phaseI, stride) === 0 &&
+    positiveModulo(cellJ - phaseJ, stride) === 0
+  );
+}
+
+function densityRandomValue(
+  pt: { x: number; y: number },
+  center: { x: number; y: number },
+  gridSpacing: number,
+  seed: number,
+  latticeI?: number,
+  latticeJ?: number,
+  rhythmOffset?: number,
+): number {
+  const spacing = Math.max(1, finiteOr(gridSpacing, 20));
+  const face = Number.isFinite(rhythmOffset) ? Math.round(rhythmOffset as number) : 0;
+  const hashX = Number.isFinite(latticeI)
+    ? Math.round((latticeI as number) * 4) + face
+    : Math.round(((pt.x - center.x) / spacing) * 4096);
+  const hashY = Number.isFinite(latticeJ)
+    ? Math.round((latticeJ as number) * 4) + face * 2
+    : Math.round(((pt.y - center.y) / spacing) * 4096);
+  return noiseHash(hashX, hashY, Math.floor(finiteOr(seed, 1)) + 7919);
+}
+
+/**
+ * Adds a deterministic orientation rhythm on top of the vector field. The
+ * optional lattice indices keep the phase locked to angled/offset lattices;
+ * polar, concentric and random layouts fall back to quantized canvas cells.
+ */
+function computeRhythmRotation(
+  pt: { x: number; y: number },
+  center: { x: number; y: number },
+  gridSpacing: number,
+  mode: RhythmMode | string,
+  flipAngleDeg: number,
+  phase: number,
+  latticeI?: number,
+  latticeJ?: number,
+): number {
+  if (!mode || mode === 'none') return 0;
+  const spacing = Math.max(1, finiteOr(gridSpacing, 20));
+  const cellI = Number.isFinite(latticeI)
+    ? Math.round(latticeI as number)
+    : Math.round((pt.x - center.x) / spacing);
+  const cellJ = Number.isFinite(latticeJ)
+    ? Math.round(latticeJ as number)
+    : Math.round((pt.y - center.y) / spacing);
+  const phaseBit = Math.round(clamp(finiteOr(phase, 0), 0, 1));
+  let flipped = false;
+
+  switch (mode) {
+    case 'triangle-tessellation':
+    case 'alternate':
+      flipped = positiveModulo(cellI + cellJ + phaseBit, 2) === 1;
+      break;
+    case 'row-alternate':
+      flipped = positiveModulo(cellJ + phaseBit, 2) === 1;
+      break;
+    case 'column-alternate':
+      flipped = positiveModulo(cellI + phaseBit, 2) === 1;
+      break;
+    case 'syncopated':
+      // Two hits followed by a rest: A B B, repeated along the lattice.
+      flipped = positiveModulo(cellI + cellJ + phaseBit, 3) !== 0;
       break;
     default:
-      rotation = 0;
+      return 0;
   }
 
-  // ---- Curl modifier ----
-  // Constant curl = solid-body rotation: adds uniform angular velocity
-  // curl=0: irrotational; curl>0: counterclockwise circulation
-  // φ_curl = k·r where k = curlIntensity/1000 rad/px
-  if (curlEnabled && curlIntensity > 0) {
-    rotation += (curlIntensity / 1000) * r * deg;
+  return flipped ? finiteOr(flipAngleDeg, 180) : 0;
+}
+
+/**
+ * Places a node so its local center stays on the requested grid point while
+ * its local +X axis follows a visual, canvas-space angle. Canvas angles grow
+ * clockwise because Y grows downward; Figma's `rotation` property uses the
+ * opposite sign and pivots around the top-left, so setting `rotation` alone
+ * cannot keep directional units centered on their grid points.
+ */
+function placeNodeAtVisualAngle(
+  node: SceneNode,
+  center: { x: number; y: number },
+  visualAngleDeg: number,
+): void {
+  const angle = (finiteOr(visualAngleDeg, 0) * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const halfWidth = node.width / 2;
+  const halfHeight = node.height / 2;
+
+  node.relativeTransform = [
+    [cos, -sin, center.x - cos * halfWidth + sin * halfHeight],
+    [sin, cos, center.y - sin * halfWidth - cos * halfHeight],
+  ];
+}
+
+interface PresetDotResult {
+  node: SceneNode;
+  // Visual clockwise offset from the unit's intrinsic axis to local +X.
+  baseRotation: number;
+}
+
+function createVectorUnit(path: string): VectorNode {
+  const vector = figma.createVector();
+  vector.vectorPaths = [{ windingRule: 'NONZERO', data: path }];
+  vector.fills = [{ type: 'SOLID', color: { r: 0, g: 0, b: 0 } }];
+  vector.strokes = [];
+  return vector;
+}
+
+function createPresetDot(preset: UnitPreset, diameter: number): PresetDotResult {
+  const width = Math.max(0.5, diameter);
+
+  if (preset === 'ellipse') {
+    const ellipse = figma.createEllipse();
+    ellipse.resize(width, Math.max(0.5, width * 0.42));
+    ellipse.strokeWeight = 0;
+    return { node: ellipse, baseRotation: 0 };
   }
 
-  return rotation;
+  if (preset === 'diamond') {
+    const diamond = figma.createPolygon();
+    diamond.pointCount = 4;
+    diamond.resize(width, Math.max(0.5, width * 0.62));
+    diamond.strokeWeight = 0;
+    return { node: diamond, baseRotation: 0 };
+  }
+
+  if (preset === 'triangle') {
+    const triangle = figma.createPolygon();
+    triangle.pointCount = 3;
+    triangle.resize(width, Math.max(0.5, width * (Math.sqrt(3) / 2)));
+    triangle.strokeWeight = 0;
+    // Figma polygons point upward by default; visually +90° points the tip right.
+    return { node: triangle, baseRotation: 90 };
+  }
+
+  if (preset === 'capsule') {
+    const height = Math.max(0.5, width * 0.28);
+    const capsule = figma.createRectangle();
+    capsule.resize(width, height);
+    capsule.cornerRadius = height / 2;
+    capsule.strokeWeight = 0;
+    return { node: capsule, baseRotation: 0 };
+  }
+
+  if (preset === 'arrow') {
+    const height = Math.max(0.5, width * 0.62);
+    const y1 = height * 0.31;
+    const y2 = height * 0.69;
+    const neck = width * 0.58;
+    const arrow = createVectorUnit(
+      `M 0 ${y1} L ${neck} ${y1} L ${neck} 0 L ${width} ${height / 2} L ${neck} ${height} L ${neck} ${y2} L 0 ${y2} Z`,
+    );
+    return { node: arrow, baseRotation: 0 };
+  }
+
+  if (preset === 'leaf') {
+    const height = Math.max(0.5, width * 0.56);
+    const leaf = createVectorUnit(
+      `M 0 ${height / 2} C ${width * 0.24} 0 ${width * 0.72} 0 ${width} ${height / 2} C ${width * 0.72} ${height} ${width * 0.24} ${height} 0 ${height / 2} Z`,
+    );
+    return { node: leaf, baseRotation: 0 };
+  }
+
+  if (preset === 'chevron') {
+    const height = Math.max(0.5, width * 0.68);
+    const chevron = createVectorUnit(
+      `M 0 0 L ${width * 0.46} ${height / 2} L 0 ${height} L ${width * 0.34} ${height} L ${width} ${height / 2} L ${width * 0.34} 0 Z`,
+    );
+    return { node: chevron, baseRotation: 0 };
+  }
+
+  const circle = figma.createEllipse();
+  circle.resize(width, width);
+  circle.strokeWeight = 0;
+  return { node: circle, baseRotation: 0 };
 }
 
 // ---- Main Generation ----
@@ -1093,14 +1703,16 @@ async function handleGenerate(params: GenerateParams) {
 
   const fillResult = analyzeFill(boundaryNode);
 
+  const requestedUnit = params.unitPreset || (params.dotSourceNodeId ? 'selected' : 'circle');
   let dotSource: SceneNode | null = null;
-  if (params.dotSourceNodeId) {
+  if (requestedUnit === 'selected' && params.dotSourceNodeId) {
     dotSource = (await figma.getNodeByIdAsync(params.dotSourceNodeId)) as SceneNode | null;
     if (!dotSource || !('clone' in dotSource)) {
       figma.notify('Invalid dot source shape', { error: true });
       return;
     }
   }
+  const effectiveUnit: UnitPreset = requestedUnit === 'selected' && !dotSource ? 'circle' : requestedUnit;
 
   const bounds = boundaryNode.absoluteBoundingBox;
   if (!bounds) {
@@ -1114,6 +1726,9 @@ async function handleGenerate(params: GenerateParams) {
     diameter: number;
     color?: RGBA;
     rotation: number;
+    latticeI?: number;
+    latticeJ?: number;
+    rhythmOffset?: number;
   }
 
   // Filter grid points inside shape
@@ -1122,6 +1737,9 @@ async function handleGenerate(params: GenerateParams) {
     ay: number;
     lx: number;
     ly: number;
+    latticeI?: number;
+    latticeJ?: number;
+    rhythmOffset?: number;
   }
 
   const shapeCenter = {
@@ -1131,17 +1749,43 @@ async function handleGenerate(params: GenerateParams) {
 
   const invAbsTransform = invertMatrix(boundaryNode.absoluteTransform);
   const MAX_DOTS = 10000;
+  const MAX_CANDIDATES = 50000;
+  const gridSpacing = clamp(finiteOr(params.gridSpacing, 20), 1, 10000);
+  const triangleTessellationLayout =
+    params.rhythmEnabled &&
+    params.rhythmMode === 'triangle-tessellation' &&
+    !params.polarEnabled &&
+    !params.concentricEnabled &&
+    !params.phyllotaxisEnabled;
 
   // Generate candidate points from bounding box
-  let allPoints: { x: number; y: number }[];
+  let allPoints: PointCandidate[];
 
-  if (params.polarEnabled) {
+  if (triangleTessellationLayout) {
+    allPoints = generateTriangleTessellationPoints(
+      bounds,
+      gridSpacing,
+      finiteOr(params.gridAngle, 0),
+      finiteOr(params.rowSpacingRatio, 1),
+      finiteOr(params.jitterAmount, 0),
+      finiteOr(params.randomSeed, 1),
+      MAX_CANDIDATES,
+    );
+  } else if (params.polarEnabled) {
     const cx = bounds.width / 2;
     const cy = bounds.height / 2;
     const maxRadius = Math.sqrt(cx * cx + cy * cy);
     const center = { x: bounds.x + cx, y: bounds.y + cy };
 
-    allPoints = generatePolarPoints(center, maxRadius, params.polarN, params.polarSkip, params.polarSpiralType, params.gridSpacing);
+    allPoints = generatePolarPoints(
+      center,
+      maxRadius,
+      params.polarN,
+      params.polarSkip,
+      params.polarSpiralType,
+      gridSpacing,
+      MAX_CANDIDATES,
+    );
   } else if (params.concentricEnabled) {
     const cx = bounds.width / 2;
     const cy = bounds.height / 2;
@@ -1156,6 +1800,7 @@ async function handleGenerate(params: GenerateParams) {
       params.concentricDelta,
       params.concentricRatio,
       params.concentricPhaseOffset,
+      MAX_CANDIDATES,
     );
   } else if (params.phyllotaxisEnabled) {
     const cx = bounds.width / 2;
@@ -1163,23 +1808,63 @@ async function handleGenerate(params: GenerateParams) {
     const maxRadius = Math.sqrt(cx * cx + cy * cy);
     const center = { x: bounds.x + cx, y: bounds.y + cy };
 
-    allPoints = generatePhyllotaxisPoints(center, maxRadius, params.gridSpacing);
+    allPoints = generatePhyllotaxisPoints(
+      center,
+      maxRadius,
+      gridSpacing,
+      MAX_CANDIDATES,
+    );
   } else {
-    allPoints = generateGridPoints(bounds, params.gridSpacing, params.tileMode);
+    allPoints = generateGridPoints(
+      bounds,
+      gridSpacing,
+      params.tileMode,
+      finiteOr(params.gridAngle, 0),
+      finiteOr(params.rowOffset, 0),
+      finiteOr(params.rowSpacingRatio, 1),
+      finiteOr(params.jitterAmount, 0),
+      finiteOr(params.randomSeed, 1),
+      MAX_CANDIDATES,
+    );
+  }
+
+  if (allPoints.length > MAX_CANDIDATES) {
+    figma.notify('Point field is too dense. Increase spacing or row spacing.', { error: true });
+    return;
   }
   const rawPoints: RawPoint[] = [];
 
   for (const pt of allPoints) {
     const localPt = transformPoint(invAbsTransform, pt);
     if (!isPointInsideShape(localPt, geometry)) continue;
-    rawPoints.push({ ax: pt.x, ay: pt.y, lx: localPt.x, ly: localPt.y });
+    rawPoints.push({
+      ax: pt.x,
+      ay: pt.y,
+      lx: localPt.x,
+      ly: localPt.y,
+      latticeI: pt.latticeI,
+      latticeJ: pt.latticeJ,
+      rhythmOffset: pt.rhythmOffset,
+    });
   }
 
   const gridPoints: GridPoint[] = [];
+  const grayscaleMode: GrayscaleMode = params.grayscaleMode ||
+    (params.sampleBitmap && params.densityEnabled
+      ? 'both'
+      : params.sampleBitmap
+        ? 'radius'
+        : params.densityEnabled
+          ? 'density'
+          : 'off');
+  const radiusByGrayscale = grayscaleMode === 'radius' || grayscaleMode === 'both';
+  const densityByGrayscale = grayscaleMode === 'density' || grayscaleMode === 'both';
+  const needsBitmapSampling = radiusByGrayscale || densityByGrayscale;
+  let bitmapResult: { lightness: number[]; colors?: RGBA[] } | null = null;
 
-  if (params.sampleBitmap) {
-    // Export boundary node as PNG and sample pixel lightness via UI
-    const exportScale = Math.min(4, Math.max(0.5, 2 / params.gridSpacing));
+  if (needsBitmapSampling) {
+    // Radius sampling and density control share this single image export.
+    const exportScale = Math.min(4, Math.max(0.5, 2 / gridSpacing));
     const nodeMaxDim = Math.max(boundaryNode.width, boundaryNode.height);
     const scale = Math.min(exportScale, 4096 / nodeMaxDim);
     const imageBytes = await boundaryNode.exportAsync({
@@ -1197,60 +1882,128 @@ async function handleGenerate(params: GenerateParams) {
       sampleColor: params.sampleColor,
     });
 
-    const result = await new Promise<{ lightness: number[]; colors?: RGBA[] }>((resolve) => {
+    bitmapResult = await new Promise<{ lightness: number[]; colors?: RGBA[] }>((resolve) => {
       bitmapResolve = resolve;
     });
+  }
 
-    for (let i = 0; i < rawPoints.length; i++) {
-      const l = result.lightness[i];
-      const diameter = Math.max(0.5, params.maxDiameter - l * (params.maxDiameter - params.minDiameter));
-      const color = result.colors ? result.colors[i] : undefined;
-      const rotation = computeRotation(
-        { x: rawPoints[i].ax, y: rawPoints[i].ay },
-        shapeCenter,
-        params.rotationMode,
-        params.gridSpacing,
-        params.curlEnabled,
-        params.curlIntensity,
-      );
-      gridPoints.push({ x: rawPoints[i].ax, y: rawPoints[i].ay, diameter, color, rotation });
+  for (let i = 0; i < rawPoints.length; i++) {
+    const rp = rawPoints[i];
+    const bitmapLightness = bitmapResult
+      ? clamp(finiteOr(bitmapResult.lightness[i], 1), 0, 1)
+      : null;
+
+    if (densityByGrayscale && bitmapLightness !== null) {
+      if ((params.densityMethod || 'spacing') === 'random') {
+        const keepProbability = computeDensityProbability(
+          bitmapLightness,
+          finiteOr(params.densityMinPercent, 5),
+          finiteOr(params.densityCurve, 1),
+        );
+        const randomValue = densityRandomValue(
+          { x: rp.ax, y: rp.ay },
+          shapeCenter,
+          gridSpacing,
+          finiteOr(params.randomSeed, 1),
+          rp.latticeI,
+          rp.latticeJ,
+          rp.rhythmOffset,
+        );
+        if (randomValue >= keepProbability) continue;
+      } else if (
+        !keepPointOnDensitySublattice(
+          { x: rp.ax, y: rp.ay },
+          shapeCenter,
+          gridSpacing,
+          bitmapLightness,
+          finiteOr(params.densityMaxSpacing, 4),
+          finiteOr(params.densityCurve, 1),
+          finiteOr(params.randomSeed, 1),
+          rp.latticeI,
+          rp.latticeJ,
+        )
+      ) {
+        continue;
+      }
     }
-  } else {
-    for (const rp of rawPoints) {
-      let diameter: number;
-      let color: RGBA | undefined;
 
-      if (fillResult.type === 'gradient' && fillResult.gradient) {
+    let diameter: number;
+    let color: RGBA | undefined;
+
+    if (radiusByGrayscale && bitmapLightness !== null) {
+      diameter = params.maxDiameter - bitmapLightness * (params.maxDiameter - params.minDiameter);
+      if (params.sampleColor && bitmapResult?.colors) {
+        color = bitmapResult.colors[i];
+      }
+    } else {
+      diameter = params.dotDiameter;
+      if (params.sampleColor && fillResult.type === 'gradient' && fillResult.gradient) {
         const normX = rp.lx / geometry.width;
         const normY = rp.ly / geometry.height;
         const sampled = sampleGradient({ x: normX, y: normY }, fillResult.gradient);
-        const lightness = getLightness(sampled);
-        diameter = params.maxDiameter - lightness * (params.maxDiameter - params.minDiameter);
-        if (params.sampleColor) {
-          color = sampled;
-        }
-      } else {
-        diameter = params.dotDiameter;
-        if (params.sampleColor && fillResult.type === 'solid' && fillResult.color) {
-          color = fillResult.color;
-        }
+        color = sampled;
+      } else if (params.sampleColor && fillResult.type === 'solid' && fillResult.color) {
+        color = fillResult.color;
       }
+    }
 
-      if (diameter < 0.5) diameter = 0.5;
-      const rotation = computeRotation(
-        { x: rp.ax, y: rp.ay },
-        shapeCenter,
-        params.rotationMode,
-        params.gridSpacing,
-        params.curlEnabled,
-        params.curlIntensity,
-      );
-      gridPoints.push({ x: rp.ax, y: rp.ay, diameter, color, rotation });
+    if (params.sampleColor && bitmapResult?.colors) {
+      color = bitmapResult.colors[i];
+    }
+    if (diameter < 0.5) diameter = 0.5;
+    const rotation = computeFlowRotation(
+      { x: rp.ax, y: rp.ay },
+      shapeCenter,
+      params.rotationMode,
+      gridSpacing,
+      finiteOr(params.flowAngle, 0),
+      finiteOr(params.flowStrength, 50),
+      finiteOr(params.flowScale, 6),
+      finiteOr(params.orientationOffset, 0),
+      finiteOr(params.randomSeed, 1),
+    );
+    gridPoints.push({
+      x: rp.ax,
+      y: rp.ay,
+      diameter,
+      color,
+      rotation,
+      latticeI: rp.latticeI,
+      latticeJ: rp.latticeJ,
+      rhythmOffset: rp.rhythmOffset,
+    });
+  }
+
+  if (params.rhythmEnabled) {
+    for (const gp of gridPoints) {
+      if (Number.isFinite(gp.rhythmOffset)) {
+        const facePhase = positiveModulo(
+          (gp.rhythmOffset as number) + Math.round(clamp(finiteOr(params.rhythmPhase, 0), 0, 1)),
+          2,
+        );
+        gp.rotation += facePhase * finiteOr(params.rhythmFlipAngle, 180);
+      } else {
+        gp.rotation += computeRhythmRotation(
+          { x: gp.x, y: gp.y },
+          shapeCenter,
+          gridSpacing,
+          params.rhythmMode,
+          finiteOr(params.rhythmFlipAngle, 180),
+          finiteOr(params.rhythmPhase, 0),
+          gp.latticeI,
+          gp.latticeJ,
+        );
+      }
     }
   }
 
   if (gridPoints.length === 0) {
-    figma.notify('No grid points inside the boundary shape', { error: true });
+    figma.notify(
+      densityByGrayscale
+        ? 'No points remained after grayscale density filtering. Reduce Light-area Spacing, increase Light-area Density, or reduce Grid Spacing.'
+        : 'No grid points inside the boundary shape',
+      { error: true },
+    );
     return;
   }
 
@@ -1266,9 +2019,18 @@ async function handleGenerate(params: GenerateParams) {
 
   for (const gp of gridPoints) {
     let dot: SceneNode;
+    let baseRotation = 0;
+    let isCustomDot = false;
 
     if (dotSource) {
       dot = dotSource.clone();
+      // Preserve the selected unit's visible axis, including rotation inherited
+      // from a parent frame/group. Figma's absolute transform maps local +X to
+      // (m00, m10) in canvas coordinates.
+      baseRotation =
+        (Math.atan2(dotSource.absoluteTransform[1][0], dotSource.absoluteTransform[0][0]) * 180) /
+        Math.PI;
+      isCustomDot = true;
       const sourceBounds = dotSource.absoluteBoundingBox;
       const sourceW = sourceBounds ? sourceBounds.width : dotSource.width;
       if (sourceW > 0) {
@@ -1276,16 +2038,17 @@ async function handleGenerate(params: GenerateParams) {
         (dot as { rescale(s: number): void }).rescale(scale);
       }
     } else {
-      const ellipse = figma.createEllipse();
-      ellipse.resize(gp.diameter, gp.diameter);
-      ellipse.strokeWeight = 0;
-      dot = ellipse;
+      const preset = createPresetDot(effectiveUnit, gp.diameter);
+      dot = preset.node;
+      baseRotation = preset.baseRotation;
+      if (triangleTessellationLayout && effectiveUnit === 'triangle') {
+        // The tessellation faces are vertical up/down triangles. The regular
+        // directional triangle preset uses +X as its flow axis elsewhere.
+        baseRotation = 0;
+      }
     }
 
-    dot.x = gp.x - dot.width / 2;
-    dot.y = gp.y - dot.height / 2;
-
-    if ('fills' in dot && !dotSource) {
+    if ('fills' in dot && !isCustomDot) {
       if (gp.color) {
         dot.fills = [{ type: 'SOLID', color: gp.color }];
       } else {
@@ -1293,11 +2056,10 @@ async function handleGenerate(params: GenerateParams) {
       }
     }
 
-    if ('rotation' in dot && gp.rotation !== 0) {
-      dot.rotation = gp.rotation;
-    }
-
+    // A clone may initially belong to the selected unit's parent. Reparent it
+    // before applying page-space coordinates, then rotate around its center.
     figma.currentPage.appendChild(dot);
+    placeNodeAtVisualAngle(dot, { x: gp.x, y: gp.y }, gp.rotation + baseRotation);
     nodes.push(dot);
   }
 
@@ -1307,7 +2069,8 @@ async function handleGenerate(params: GenerateParams) {
   } else {
     group = figma.group([nodes[0]], figma.currentPage);
   }
-  group.name = 'Grid Dots';
+  const unitName = dotSource ? `Selected · ${dotSource.name}` : effectiveUnit;
+  group.name = `Grid Dots · ${unitName} · ${params.rotationMode}`;
   group.expanded = false;
 
   figma.currentPage.selection = [group];
